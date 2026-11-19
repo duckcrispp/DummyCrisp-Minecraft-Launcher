@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="ui-prototype/assets/app-icon.png" alt="DummyCrisp Launcher Logo" width="128" height="128" />
+  <img src="ui-prototype/assets/app-icon.png" alt="DummyCrisp Minecraft Launcher Logo" width="128" height="128" />
 </p>
 
-<h1 align="center">DummyCrisp Launcher (DCL)</h1>
+<h1 align="center">DummyCrisp Minecraft Launcher (DCL)</h1>
 
 <p align="center">
   <strong>A modern Windows launcher for Minecraft: Java Edition</strong><br/>
@@ -13,13 +13,13 @@
 
 ---
 
-> **Development Notice (WIP)**: DummyCrisp Launcher is currently under active early development. Features, UI layouts, and APIs are subject to change prior to the initial public release.
+> **Development Notice (WIP)**: DummyCrisp Minecraft Launcher is currently under active early development. Features, UI layouts, and APIs are subject to change prior to the initial public release.
 
 > **Disclaimer**: NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.
 
 ## Overview
 
-**DummyCrisp Launcher (DCL)** is a lightweight Windows desktop launcher for *Minecraft: Java Edition* built with **.NET 8 (WinForms + Microsoft Edge WebView2)** and a custom HTML/CSS/JS interface.
+**DummyCrisp Minecraft Launcher (DCL)** is a lightweight Windows desktop launcher for *Minecraft: Java Edition* built with **.NET 8 (WinForms + Microsoft Edge WebView2)** and a custom HTML/CSS/JS interface.
 
 ### Key Capabilities
 - **Version & Instance Management**: Version isolation under `.minecraft/versions/<id>/`, external `.minecraft` / version folder zero-copy recognition & import, multi-loader support (Vanilla, Fabric, Forge, NeoForge, Quilt), and Java runtime discovery/installation.
@@ -29,7 +29,7 @@
 
 ## Authentication, Security & Privacy
 
-DummyCrisp Launcher uses **Microsoft OAuth 2.0 Public Client Device Code Flow** for *Minecraft: Java Edition* authentication (`AccountManager.cs`):
+DummyCrisp Minecraft Launcher uses **Microsoft OAuth 2.0 Public Client Device Code Flow** for *Minecraft: Java Edition* authentication (`AccountManager.cs`):
 1. Requests a user device code from Microsoft's `/consumers/oauth2/v2.0/devicecode` endpoint with scope `XboxLive.signin offline_access`.
 2. Launches the user's system browser directly to Microsoft's official verification page (`microsoft.com` / `login.microsoftonline.com`) — **the launcher never collects, handles, or stores Microsoft account passwords**.
 3. Stores issued session/refresh tokens **only locally** on the user's device, encrypted per-Windows-user via **Windows DPAPI** (`ProtectedData.Protect(..., DataProtectionScope.CurrentUser)` inside `DCL/config/accounts.dat`).

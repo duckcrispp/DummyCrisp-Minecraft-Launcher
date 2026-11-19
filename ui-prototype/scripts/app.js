@@ -49,6 +49,8 @@
   let loaderFilter = "all";
   let sourceFilter = "all";
   let sortFilter = "downloads";
+  let categoryFilter = "all";
+  let subCategoryFilter = "all";
   let mcVersionFilter = "all";
   let filterOpen = false;
   let launchProgress = 0;
@@ -85,6 +87,8 @@
         loaderFilter,
         sourceFilter,
         sortFilter,
+        categoryFilter,
+        subCategoryFilter,
         mcVersionFilter,
         filterOpen,
         openPclCats,
@@ -110,6 +114,8 @@
     loaderFilter = "all";
     sourceFilter = "all";
     sortFilter = "downloads";
+    categoryFilter = "all";
+    subCategoryFilter = "all";
     mcVersionFilter = "all";
     filterOpen = false;
     lastKnownTotalHits = 0;
@@ -137,24 +143,70 @@
     else if (animate) animateDampedSlide(results.querySelector(".data-table-list") || results, 10);
   }
 
-  function appendStreamedCatalogRows(subRoute, catKey, startIdx, newItems, fullOnlineSearch) {
+  let streamRowTimers = [];
+  function clearStreamRowTimers() {
+    streamRowTimers.forEach((t) => clearTimeout(t));
+    streamRowTimers = [];
+  }
+
+  function appendStreamedCatalogRows(subRoute, catKey, startIdx, newItems, fullOnlineSearch, keepTailSkeletons, seq) {
     const results = document.getElementById("resource-download-results");
     const listEl = document.getElementById("download-results-list");
     if (!results || !listEl || !Array.isArray(newItems)) {
       refreshDownloadResults(subRoute);
       return;
     }
-    listEl.querySelectorAll(".data-row--skeleton").forEach((el) => el.remove());
     const state = window.LauncherBridge.getStateSync();
-    if (newItems.length > 0 && typeof window.LauncherViews.renderResourceRowHtml === "function") {
+    const updateMeta = () => {
+      if (!keepTailSkeletons) results.removeAttribute("aria-busy");
+      const total = Number(fullOnlineSearch?.totalHits) || fullOnlineSearch?.items?.length || 0;
+      const totalPages = Math.max(1, Math.ceil(total / 50));
+      results.querySelectorAll(".pagination-info").forEach((info) => {
+        info.textContent = `共 ${total} 项 · 第 ${currentPage} / ${totalPages} 页`;
+      });
+    };
+
+    if (newItems.length === 0) {
+      if (!keepTailSkeletons) {
+        listEl.querySelectorAll(".data-row--skeleton").forEach((el) => el.remove());
+      }
+      updateMeta();
+      return;
+    }
+
+    if (prefersReducedMotion() || typeof window.LauncherViews.renderResourceRowHtml !== "function") {
+      listEl.querySelectorAll(".data-row--skeleton").forEach((el) => el.remove());
       const fragHtml = newItems.map((it, idx) => window.LauncherViews.renderResourceRowHtml(it, catKey, state, startIdx + idx)).join("");
       listEl.insertAdjacentHTML("beforeend", fragHtml);
+      if (keepTailSkeletons && typeof window.LauncherViews.renderSkeletonRowsHtml === "function") {
+        listEl.insertAdjacentHTML("beforeend", window.LauncherViews.renderSkeletonRowsHtml(3));
+      }
+      updateMeta();
+      return;
     }
-    results.removeAttribute("aria-busy");
-    const total = Number(fullOnlineSearch?.totalHits) || fullOnlineSearch?.items?.length || 0;
-    const totalPages = Math.max(1, Math.ceil(total / 50));
-    results.querySelectorAll(".pagination-info").forEach((info) => {
-      info.textContent = `共 ${total} 项 · 第 ${currentPage} / ${totalPages} 页`;
+
+    // 逐条流式插入，避免整批突兀跳出
+    const stepMs = 20;
+    newItems.forEach((it, i) => {
+      const timer = setTimeout(() => {
+        if (seq !== onlineSearchSeq || currentRoute === "resource-detail" || (activeSubRoute || currentRoute) !== subRoute) return;
+        const curList = document.getElementById("download-results-list");
+        if (!curList) return;
+        const firstSkel = curList.querySelector(".data-row--skeleton");
+        const rowHtml = window.LauncherViews.renderResourceRowHtml(it, catKey, window.LauncherBridge.getStateSync(), startIdx + i);
+        if (firstSkel) {
+          firstSkel.insertAdjacentHTML("beforebegin", rowHtml);
+          if (!keepTailSkeletons && i === newItems.length - 1) {
+            curList.querySelectorAll(".data-row--skeleton").forEach((el) => el.remove());
+          }
+        } else {
+          curList.insertAdjacentHTML("beforeend", rowHtml);
+        }
+        if (i === newItems.length - 1) {
+          updateMeta();
+        }
+      }, i * stepMs);
+      streamRowTimers.push(timer);
     });
   }
 
@@ -163,72 +215,123 @@
     if (!catKey) return;
     clearTimeout(onlineSearchTimer);
     clearTimeout(catalogPrefetchTimer);
+    clearStreamRowTimers();
     const seq = ++onlineSearchSeq;
     const query = searchQuery;
     const page = currentPage;
     const source = sourceFilter;
     const loader = loaderFilter;
     const sortBy = sortFilter;
+    const categoryTag = categoryFilter;
+    const subCategoryTag = subCategoryFilter;
     const mcVersion = mcVersionFilter;
     const baseOffset = (page - 1) * 50;
-    const firstChunkSize = 15;
-    const secondChunkSize = 35;
+    const chunkSizes = [10, 10, 10, 10, 10];
 
     // Flip immediately on pagination click with top-down skeleton rows while fetching
-    onlineSearch = { catKey, source, sortBy, mcVersion, page, items: [], totalHits: lastKnownTotalHits, loading: true, streaming: false };
+    onlineSearch = { catKey, source, sortBy, categoryTag, subCategoryTag, mcVersion, page, items: [], totalHits: lastKnownTotalHits, loading: true, streaming: false };
     refreshDownloadResults(subRoute, motion);
     document.getElementById("resource-download-results")?.setAttribute("aria-busy", "true");
 
-    const chunk1Promise = window.LauncherBridge.fetchLiveCatalogPage(catKey, query, loader, page, firstChunkSize, source, baseOffset, sortBy, mcVersion);
-    const shouldFetchChunk2 = lastKnownTotalHits === 0 || (baseOffset + firstChunkSize) < lastKnownTotalHits;
-    const chunk2Promise = shouldFetchChunk2
-      ? window.LauncherBridge.fetchLiveCatalogPage(catKey, query, loader, page, secondChunkSize, source, baseOffset + firstChunkSize, sortBy, mcVersion).catch(() => ({ items: [] }))
-      : Promise.resolve({ items: [] });
+    // 启动首波请求，同时并行发起后续 4 个小块（每块 10 条），按序逐条流式渲染
+    let runningOffset = baseOffset;
+    const waveSpecs = chunkSizes.map((size) => {
+      const spec = { offset: runningOffset, size };
+      runningOffset += size;
+      return spec;
+    });
+    const wavePromises = waveSpecs.map((spec, idx) => {
+      if (idx > 0 && lastKnownTotalHits > 0 && spec.offset >= lastKnownTotalHits) {
+        return Promise.resolve({ items: [] });
+      }
+      const p = window.LauncherBridge.fetchLiveCatalogPage(
+        catKey, query, loader, page, spec.size, source, spec.offset, sortBy, mcVersion, categoryTag, subCategoryTag
+      );
+      return idx === 0 ? p : p.catch(() => ({ items: [] }));
+    });
 
-    let chunk1;
+    let firstChunk;
     try {
-      chunk1 = await chunk1Promise;
+      firstChunk = await wavePromises[0];
     } catch (error) {
-      chunk1 = { items: [], message: error.message || "暂时无法加载在线目录。" };
+      firstChunk = { items: [], message: error.message || "暂时无法加载在线目录。" };
     }
     if (seq !== onlineSearchSeq || currentRoute === "resource-detail" || (activeSubRoute || currentRoute) !== subRoute) return;
 
-    // Offline / unreachable upstream returns null -> fall back cleanly to local catalog
-    if (!chunk1) {
+    if (!firstChunk) {
       onlineSearch = null;
       refreshDownloadResults(subRoute);
       return;
     }
 
-    if (Number(chunk1?.totalHits) > 0) lastKnownTotalHits = Number(chunk1.totalHits);
-    const chunk1Items = Array.isArray(chunk1?.items) ? chunk1.items : [];
-    const totalHits1 = Number(chunk1?.totalHits) || lastKnownTotalHits || chunk1Items.length;
-    const expectsMore = chunk1Items.length >= firstChunkSize && (baseOffset + firstChunkSize) < totalHits1;
+    if (Number(firstChunk?.totalHits) > 0) lastKnownTotalHits = Number(firstChunk.totalHits);
+    const seenIds = new Set();
+    const allItems = [];
+    const firstItems = (Array.isArray(firstChunk?.items) ? firstChunk.items : []).filter((x) => {
+      if (!x || seenIds.has(x.id)) return false;
+      seenIds.add(x.id);
+      return true;
+    });
+    allItems.push(...firstItems);
+    let totalHits = Number(firstChunk?.totalHits) || lastKnownTotalHits || firstItems.length;
+    const hasMoreWaves = firstItems.length > 0 && (baseOffset + waveSpecs[0].size) < totalHits;
 
-    onlineSearch = { ...chunk1, items: chunk1Items, totalHits: totalHits1, catKey, source, sortBy, mcVersion, page, loading: false, streaming: expectsMore };
-    refreshDownloadResults(subRoute);
+    // 先渲染框架 + 骨架，再将首批结果流式逐条写入
+    onlineSearch = { ...firstChunk, items: [], totalHits, catKey, source, sortBy, categoryTag, subCategoryTag, mcVersion, page, loading: firstItems.length === 0 ? false : true, streaming: hasMoreWaves };
+    if (firstItems.length === 0) {
+      refreshDownloadResults(subRoute);
+    } else {
+      onlineSearch = { ...firstChunk, items: allItems.slice(), totalHits, catKey, source, sortBy, categoryTag, subCategoryTag, mcVersion, page, loading: false, streaming: hasMoreWaves };
+      // 用骨架占位后逐条流式替换首批 10 项
+      const results = document.getElementById("resource-download-results");
+      const listEl = document.getElementById("download-results-list");
+      if (results && listEl && listEl.querySelector(".data-row--skeleton") && results.querySelector("[data-page]")) {
+        appendStreamedCatalogRows(subRoute, catKey, 0, firstItems, onlineSearch, hasMoreWaves, seq);
+      } else {
+        refreshDownloadResults(subRoute);
+      }
+    }
 
-    if (expectsMore) {
-      const chunk2 = await chunk2Promise;
-      if (seq !== onlineSearchSeq || currentRoute === "resource-detail" || (activeSubRoute || currentRoute) !== subRoute) return;
-      const chunk2Items = Array.isArray(chunk2?.items) ? chunk2.items : [];
-      const mergedItems = chunk1Items.concat(chunk2Items);
-      const totalHitsMerged = Math.max(totalHits1, Number(chunk2?.totalHits) || 0, mergedItems.length);
-      if (totalHitsMerged > 0) lastKnownTotalHits = totalHitsMerged;
-      onlineSearch = {
-        ...chunk1,
-        ...chunk2,
-        items: mergedItems,
-        totalHits: totalHitsMerged,
-        catKey,
-        source,
-        sortBy,
-        mcVersion,
-        page,
-        loading: false,
-        streaming: false
-      };
-      appendStreamedCatalogRows(subRoute, catKey, chunk1Items.length, chunk2Items, onlineSearch);
+    if (hasMoreWaves) {
+      for (let w = 1; w < wavePromises.length; w++) {
+        if (waveSpecs[w].offset >= totalHits) break;
+        const chunk = await wavePromises[w];
+        if (seq !== onlineSearchSeq || currentRoute === "resource-detail" || (activeSubRoute || currentRoute) !== subRoute) return;
+        const fresh = (Array.isArray(chunk?.items) ? chunk.items : []).filter((x) => {
+          if (!x || seenIds.has(x.id)) return false;
+          seenIds.add(x.id);
+          return true;
+        });
+        const startIdx = allItems.length;
+        allItems.push(...fresh);
+        totalHits = Math.max(totalHits, Number(chunk?.totalHits) || 0, allItems.length);
+        if (totalHits > 0) lastKnownTotalHits = totalHits;
+        const moreAfterThis = w < wavePromises.length - 1 && waveSpecs[w + 1].offset < totalHits && fresh.length > 0;
+        onlineSearch = {
+          ...firstChunk,
+          ...chunk,
+          items: allItems.slice(),
+          totalHits,
+          catKey,
+          source,
+          sortBy,
+          categoryTag,
+          subCategoryTag,
+          mcVersion,
+          page,
+          loading: false,
+          streaming: moreAfterThis
+        };
+        appendStreamedCatalogRows(subRoute, catKey, startIdx, fresh, onlineSearch, moreAfterThis, seq);
+        if (fresh.length === 0) break;
+      }
+      // 最终清理残留骨架
+      const cleanupTimer = setTimeout(() => {
+        if (seq !== onlineSearchSeq) return;
+        document.getElementById("download-results-list")?.querySelectorAll(".data-row--skeleton").forEach((el) => el.remove());
+        document.getElementById("resource-download-results")?.removeAttribute("aria-busy");
+      }, 260);
+      streamRowTimers.push(cleanupTimer);
     }
 
     const totalHitsFinal = Number(onlineSearch?.totalHits) || 0;
@@ -236,29 +339,49 @@
     if (page < lastPage) {
       catalogPrefetchTimer = setTimeout(() => {
         if (seq === onlineSearchSeq && currentRoute !== "resource-detail" && (activeSubRoute || currentRoute) === subRoute) {
-          window.LauncherBridge.fetchLiveCatalogPage(catKey, query, loader, page + 1, firstChunkSize, source, page * 50, sortBy, mcVersion).catch(() => {});
+          window.LauncherBridge.fetchLiveCatalogPage(catKey, query, loader, page + 1, 10, source, page * 50, sortBy, mcVersion, categoryTag, subCategoryTag).catch(() => {});
         }
-      }, 140);
+      }, 160);
     } else if (catKey === "mods" && page === 1 && lastPage >= 6) {
       catalogPrefetchTimer = setTimeout(() => {
         if (seq === onlineSearchSeq && currentRoute !== "resource-detail" && (activeSubRoute || currentRoute) === subRoute) {
-          window.LauncherBridge.fetchLiveCatalogPage(catKey, query, loader, lastPage, firstChunkSize, source, (lastPage - 1) * 50, sortBy, mcVersion).catch(() => {});
+          window.LauncherBridge.fetchLiveCatalogPage(catKey, query, loader, lastPage, 10, source, (lastPage - 1) * 50, sortBy, mcVersion, categoryTag, subCategoryTag).catch(() => {});
         }
-      }, 180);
+      }, 200);
     }
   }
 
-  function applyDownloadFilters() {
+  function applyDownloadFilters(opts) {
+    const keepCatTrayOpen = Boolean(opts && opts.keepCatTrayOpen);
     currentPage = 1;
     const route = activeSubRoute || currentRoute;
-    document.querySelectorAll("#filter-popover-slot [data-filter-loader], #filter-popover-slot [data-filter-source], #filter-popover-slot [data-filter-sort], #filter-popover-slot [data-filter-mc]").forEach(button => {
+    const catKey = routeToCatalogKey(route) || "mods";
+    document.querySelectorAll("#filter-popover-slot [data-filter-loader], #filter-popover-slot [data-filter-source], #filter-popover-slot [data-filter-sort], #filter-popover-slot [data-filter-cat], #filter-popover-slot [data-filter-subcat], #filter-popover-slot [data-filter-mc]").forEach(button => {
       const active = button.dataset.filterLoader ? button.dataset.filterLoader === loaderFilter
         : button.dataset.filterSource ? button.dataset.filterSource === sourceFilter
         : button.dataset.filterSort ? button.dataset.filterSort === sortFilter
+        : button.dataset.filterCat ? button.dataset.filterCat === categoryFilter
+        : button.dataset.filterSubcat ? button.dataset.filterSubcat === subCategoryFilter
         : button.dataset.filterMc === mcVersionFilter;
       button.classList.toggle("is-active", active);
       button.setAttribute("aria-pressed", String(active));
+      if (button.hasAttribute("aria-selected")) button.setAttribute("aria-selected", String(active));
     });
+    const catWrap = document.getElementById("cat-starfish-wrap");
+    const catTrigger = document.getElementById("cat-starfish-trigger");
+    if (catTrigger) {
+      const nameEl = catTrigger.querySelector(".mirror-trigger-name");
+      const nextCatLabel = window.LauncherViews.getResourceCategoryLabel(catKey, categoryFilter, subCategoryFilter);
+      if (nameEl && nameEl.textContent !== nextCatLabel) {
+        nameEl.textContent = nextCatLabel;
+        catTrigger.classList.remove("is-switching");
+        requestAnimationFrame(() => catTrigger.classList.add("is-switching"));
+      }
+      catTrigger.setAttribute("aria-label", `选择资源类型（${nextCatLabel}）`);
+      if (!keepCatTrayOpen) catTrigger.setAttribute("aria-expanded", "false");
+    }
+    if (!keepCatTrayOpen) catWrap?.classList.remove("is-open");
+
     const mcWrap = document.getElementById("mcver-starfish-wrap");
     const mcTrigger = document.getElementById("mcver-starfish-trigger");
     if (mcTrigger) {
@@ -273,7 +396,13 @@
       mcTrigger.setAttribute("aria-expanded", "false");
     }
     mcWrap?.classList.remove("is-open");
-    const hasFilter = loaderFilter !== "all" || sourceFilter !== "all" || sortFilter !== "downloads" || mcVersionFilter !== "all";
+    const mcInput = document.getElementById("mcver-search-input");
+    if (mcInput && mcInput.value) {
+      mcInput.value = "";
+      mcInput.classList.remove("has-value");
+      ensureMcVersionTrayPopulated("");
+    }
+    const hasFilter = loaderFilter !== "all" || sourceFilter !== "all" || sortFilter !== "downloads" || categoryFilter !== "all" || subCategoryFilter !== "all" || mcVersionFilter !== "all";
     document.getElementById("btn-toggle-filter")?.classList.toggle("is-active", filterOpen || hasFilter);
     if (routeToCatalogKey(route)) loadOnlineDownloadPage(route, { animate: true });
     else refreshDownloadResults(route, { animate: true });
@@ -639,7 +768,7 @@
     if (!wipeHost || !wipeInner || prefersReducedMotion()) {
       document.documentElement.setAttribute("data-theme", nextTheme.id);
       syncPaletteButtonUi(nextTheme);
-      showToast(`已切换配色主题：${nextTheme.name}`);
+      window.LauncherBridge.invoke("set_theme", { themeId: nextTheme.id }).catch(() => {});
       return;
     }
 
@@ -671,7 +800,6 @@
       document.documentElement.setAttribute("data-theme", nextTheme.id);
       syncPaletteButtonUi(nextTheme);
       window.LauncherBridge.invoke("set_theme", { themeId: nextTheme.id }).catch(() => {});
-      showToast(`已切换配色主题：${nextTheme.name}`);
     }, 240);
 
     themeWipeFadeTimer = setTimeout(() => {
@@ -702,7 +830,11 @@
     launchBtn.classList.toggle("is-disabled", !hasInst);
     launchBtn.classList.toggle("is-hollow", isPending);
     launchBtn.setAttribute("aria-disabled", String(!hasInst));
-    launchBtn.textContent = isPending ? "取消启动" : "启动游戏 →";
+    launchBtn.innerHTML = !hasInst
+      ? "<span>暂无可启动版本</span><span>→</span>"
+      : isPending
+        ? "<span>取消</span><span>×</span>"
+        : "<span>启动游戏</span><span>→</span>";
     if (isPending) launchBtn.setAttribute("data-cancel-pending-launch", "true");
     else launchBtn.removeAttribute("data-cancel-pending-launch");
   }
@@ -1391,6 +1523,13 @@
         jvmInput.value = effectiveJvmArgs;
         syncJvmTextareaHeight(jvmInput);
       }
+      document.querySelectorAll("[data-quick-jvm-preset]").forEach((b) => {
+        const p = b.getAttribute("data-quick-jvm-preset") || "";
+        const match = (p.includes("UseZGC") && effectiveJvmArgs.includes("UseZGC"))
+          || (p.includes("UseG1GC") && effectiveJvmArgs.includes("UseG1GC"))
+          || (p.includes("UseShenandoahGC") && effectiveJvmArgs.includes("UseShenandoahGC"));
+        b.classList.toggle("is-active", match);
+      });
     } else if (openPanel && activeQuickPanel === "mods") {
       syncQuickPanelUi(state, { quiet: true });
     } else if (openPanel && activeQuickPanel === "folders") {
@@ -1651,28 +1790,30 @@
       filterSlotTransitionFn = null;
     }
   }
-  function ensureMcVersionTrayPopulated() {
+  function ensureMcVersionTrayPopulated(searchText) {
     const listEl = document.getElementById("mcver-tray-list");
-    if (!listEl || listEl.dataset.lazyMcver !== "true") return;
+    if (!listEl) return;
+    const isFiltered = typeof searchText === "string";
+    if (!isFiltered && listEl.dataset.lazyMcver !== "true") return;
     listEl.dataset.lazyMcver = "false";
     listEl.innerHTML = window.LauncherViews.renderMcVersionTrayListHtml(
       window.LauncherBridge.getStateSync(),
-      mcVersionFilter
+      mcVersionFilter,
+      isFiltered ? searchText : ""
     );
   }
   function syncFilterSlotUi(opts) {
     const slot = document.getElementById("filter-popover-slot");
     const subKey = activeSubRoute || currentRoute;
-    const hasFilter = loaderFilter !== "all" || sourceFilter !== "all" || sortFilter !== "downloads" || mcVersionFilter !== "all";
+    const hasFilter = loaderFilter !== "all" || sourceFilter !== "all" || sortFilter !== "downloads" || categoryFilter !== "all" || subCategoryFilter !== "all" || mcVersionFilter !== "all";
     const filterBtn = document.getElementById("btn-toggle-filter");
     if (filterBtn) filterBtn.classList.toggle("is-active", filterOpen || hasFilter);
     if (!slot) return;
 
     clearFilterSlotPending(slot);
-    const startH = slot.getBoundingClientRect().height;
     const finishAfterTransition = (done) => {
       const onEnd = (ev) => {
-        if (ev.target !== slot || ev.propertyName !== "height") return;
+        if (ev.target !== slot || ev.propertyName !== "grid-template-rows") return;
         clearFilterSlotPending(slot);
         done();
       };
@@ -1681,52 +1822,41 @@
       filterSlotTimer = setTimeout(() => {
         clearFilterSlotPending(slot);
         done();
-      }, 320);
+      }, 260);
     };
 
     if (!filterOpen) {
-      const pop = document.getElementById("filter-popover-row");
-      if (pop && !prefersReducedMotion() && startH > 0) {
-        const mcList = document.getElementById("mcver-tray-list");
-        if (mcList) mcList.innerHTML = "";
-        pop.classList.add("is-closing");
-        slot.style.height = `${startH}px`;
-        slot.style.overflow = "hidden";
-        void slot.offsetHeight;
-        slot.style.height = "0px";
+      slot.classList.remove("is-settled");
+      if (slot.childElementCount > 0 && !prefersReducedMotion()) {
+        document.getElementById("cat-starfish-wrap")?.classList.remove("is-open");
+        document.getElementById("mcver-starfish-wrap")?.classList.remove("is-open");
+        slot.classList.remove("is-open");
         finishAfterTransition(() => {
           if (!filterOpen) {
             slot.innerHTML = "";
-            slot.style.height = "";
-            slot.style.overflow = "";
           }
         });
       } else {
+        slot.classList.remove("is-open");
         slot.innerHTML = "";
-        slot.style.height = "";
-        slot.style.overflow = "";
       }
       return;
     }
 
     const html = window.LauncherViews.renderFilterPopoverHtml(subKey, getViewOpts(), window.LauncherBridge.getStateSync());
-    slot.style.height = "";
-    slot.style.overflow = "hidden";
+    slot.classList.remove("is-settled");
     slot.innerHTML = html;
-    const targetH = slot.scrollHeight;
-    if (!(opts && opts.quiet) && !prefersReducedMotion() && startH !== targetH) {
-      slot.style.height = `${startH}px`;
-      void slot.offsetHeight;
-      slot.style.height = `${targetH}px`;
-      finishAfterTransition(() => {
-        if (filterOpen) {
-          slot.style.height = "";
-          slot.style.overflow = "";
-        }
+    if (!(opts && opts.quiet) && !prefersReducedMotion()) {
+      slot.classList.remove("is-open");
+      requestAnimationFrame(() => {
+        if (!filterOpen) return;
+        slot.classList.add("is-open");
+        finishAfterTransition(() => {
+          if (filterOpen) slot.classList.add("is-settled");
+        });
       });
     } else {
-      slot.style.height = "";
-      slot.style.overflow = "";
+      slot.classList.add("is-open", "is-settled");
     }
   }
 
@@ -1984,7 +2114,10 @@
     });
     const customBtn = document.querySelector(".cobra-custom-btn");
     if (customBtn) {
-      customBtn.classList.toggle("is-active", activeColorId === "custom");
+      customBtn.classList.toggle("has-custom-color", activeColorId === "custom");
+      if (active.customColorHex) {
+        customBtn.setAttribute("data-custom-hex", active.customColorHex);
+      }
     }
   }
 
@@ -2160,6 +2293,7 @@
         });
       }
       observeReveals();
+      syncBgPatternButtonUi();
       if (activeHubConfig) {
         initMasonryMotion(!opts.animateMasonry);
       }
@@ -2286,6 +2420,8 @@
       loaderFilter,
       sourceFilter,
       sortFilter,
+      categoryFilter,
+      subCategoryFilter,
       mcVersionFilter,
       filterOpen,
       activeQuickPanel,
@@ -2515,6 +2651,8 @@
         if (typeof prev.loaderFilter === "string") loaderFilter = prev.loaderFilter;
         if (typeof prev.sourceFilter === "string") sourceFilter = prev.sourceFilter;
         if (typeof prev.sortFilter === "string") sortFilter = prev.sortFilter;
+        if (typeof prev.categoryFilter === "string") categoryFilter = prev.categoryFilter;
+        if (typeof prev.subCategoryFilter === "string") subCategoryFilter = prev.subCategoryFilter;
         if (typeof prev.mcVersionFilter === "string") mcVersionFilter = prev.mcVersionFilter;
         if (typeof prev.filterOpen === "boolean") filterOpen = prev.filterOpen;
         if ("activeQuickPanel" in prev) activeQuickPanel = prev.activeQuickPanel;
@@ -2767,8 +2905,8 @@
     const timer = setInterval(() => {
       progress = Math.min(100, progress + 10);
       const st = window.LauncherBridge.getStateSync();
-      if (progress >= 70 && targetId && pendingLaunchIds.has(targetId)) {
-        // Simulate Minecraft Java process awakening -> restore solid button
+      if (progress >= 100 && targetId && pendingLaunchIds.has(targetId)) {
+        // Simulate Minecraft Java GUI window awakening -> restore solid button
         pendingLaunchIds.delete(targetId);
         syncLaunchButtonUi(st);
       }
@@ -2815,9 +2953,44 @@
   document.addEventListener("focusin", (e) => {
     if (e.target.closest("#mcver-starfish-wrap")) ensureMcVersionTrayPopulated();
   });
+  document.addEventListener("input", (e) => {
+    if (e.target && e.target.id === "mcver-search-input") {
+      e.target.classList.toggle("has-value", e.target.value.length > 0);
+      document.getElementById("mcver-starfish-wrap")?.classList.add("is-open");
+      ensureMcVersionTrayPopulated(e.target.value);
+    }
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.target && e.target.id === "mcver-search-input") {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const raw = e.target.value.trim();
+        const next = raw.length > 0 ? raw : "all";
+        e.target.blur();
+        if (next !== mcVersionFilter) {
+          mcVersionFilter = next;
+          applyDownloadFilters();
+        } else {
+          document.getElementById("mcver-starfish-wrap")?.classList.remove("is-open");
+          document.getElementById("mcver-starfish-trigger")?.setAttribute("aria-expanded", "false");
+        }
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        e.target.blur();
+        document.getElementById("mcver-starfish-wrap")?.classList.remove("is-open");
+        document.getElementById("mcver-starfish-trigger")?.setAttribute("aria-expanded", "false");
+      }
+    }
+  });
   document.addEventListener("click", async (e) => {
     if (accountMenuOpen && !e.target.closest("#player-account-wrap")) {
       closeAccountPopoverSmoothly();
+    }
+
+    const catWrapEl = document.getElementById("cat-starfish-wrap");
+    if (catWrapEl && !e.target.closest("#cat-starfish-wrap")) {
+      catWrapEl.classList.remove("is-open");
+      document.getElementById("cat-starfish-trigger")?.setAttribute("aria-expanded", "false");
     }
 
     const mcWrapEl = document.getElementById("mcver-starfish-wrap");
@@ -2826,12 +2999,26 @@
       document.getElementById("mcver-starfish-trigger")?.setAttribute("aria-expanded", "false");
     }
 
+    if (e.target.closest("#cat-starfish-trigger")) {
+      if (catWrapEl) {
+        mcWrapEl?.classList.remove("is-open");
+        const willOpen = !catWrapEl.classList.contains("is-open");
+        catWrapEl.classList.toggle("is-open", willOpen);
+        document.getElementById("cat-starfish-trigger")?.setAttribute("aria-expanded", String(willOpen));
+      }
+      return;
+    }
+
     if (e.target.closest("#mcver-starfish-trigger")) {
       if (mcWrapEl) {
+        catWrapEl?.classList.remove("is-open");
         ensureMcVersionTrayPopulated();
         const willOpen = !mcWrapEl.classList.contains("is-open");
         mcWrapEl.classList.toggle("is-open", willOpen);
         document.getElementById("mcver-starfish-trigger")?.setAttribute("aria-expanded", String(willOpen));
+        if (willOpen) {
+          requestAnimationFrame(() => document.getElementById("mcver-search-input")?.focus());
+        }
       }
       return;
     }
@@ -2847,7 +3034,19 @@
       } else {
         accountMenuOpen = true;
         offlineAddOpen = false;
-        syncPlayerAccountUi(window.LauncherBridge.getStateSync());
+        const existingPop = document.getElementById("account-popover");
+        const existingBadge = document.getElementById("btn-toggle-account-menu");
+        if (existingPop && !prefersReducedMotion()) {
+          existingPop.classList.remove("is-closing");
+          document.getElementById("account-offline-drawer")?.classList.remove("is-open");
+          document.getElementById("btn-show-offline-add")?.classList.remove("is-active");
+          if (existingBadge) existingBadge.setAttribute("aria-expanded", "true");
+          existingPop.classList.remove("is-open");
+          void existingPop.offsetWidth;
+          existingPop.classList.add("is-open");
+        } else {
+          syncPlayerAccountUi(window.LauncherBridge.getStateSync());
+        }
       }
       return;
     }
@@ -3434,6 +3633,32 @@
       if (next && next !== sortFilter) {
         sortFilter = next;
         applyDownloadFilters();
+      }
+      return;
+    }
+
+    const filterCatBtn = e.target.closest("[data-filter-cat]");
+    if (filterCatBtn) {
+      const next = filterCatBtn.dataset.filterCat;
+      const isDualTray = Boolean(document.querySelector("#cat-tray.cat-tray--dual"));
+      filterCatBtn.blur();
+      if (next && next !== categoryFilter) {
+        categoryFilter = next;
+        applyDownloadFilters({ keepCatTrayOpen: isDualTray });
+      } else if (!isDualTray) {
+        document.getElementById("cat-starfish-wrap")?.classList.remove("is-open");
+        document.getElementById("cat-starfish-trigger")?.setAttribute("aria-expanded", "false");
+      }
+      return;
+    }
+
+    const filterSubCatBtn = e.target.closest("[data-filter-subcat]");
+    if (filterSubCatBtn) {
+      const next = filterSubCatBtn.dataset.filterSubcat;
+      filterSubCatBtn.blur();
+      if (next && next !== subCategoryFilter) {
+        subCategoryFilter = next;
+        applyDownloadFilters({ keepCatTrayOpen: true });
       }
       return;
     }
@@ -4126,6 +4351,30 @@
       return;
     }
 
+    const quickJvmPresetBtn = e.target.closest("[data-quick-jvm-preset]");
+    if (quickJvmPresetBtn) {
+      const st = window.LauncherBridge.getStateSync();
+      const nextArgs = quickJvmPresetBtn.getAttribute("data-quick-jvm-preset") || "";
+      await window.LauncherBridge.invoke("update_instance_settings", {
+        id: st.activeInstanceId,
+        jvmArgs: nextArgs
+      });
+      const inp = document.getElementById("quick-jvm-args");
+      if (inp) {
+        inp.value = nextArgs;
+        syncJvmTextareaHeight(inp);
+      }
+      document.querySelectorAll("[data-quick-jvm-preset]").forEach((b) => b.classList.toggle("is-active", b === quickJvmPresetBtn));
+      const toggleBtn = document.getElementById("btn-apply-global-settings");
+      if (toggleBtn) {
+        toggleBtn.classList.remove("is-on");
+        toggleBtn.setAttribute("aria-pressed", "false");
+      }
+      document.getElementById("quick-settings-body")?.classList.remove("is-global-dimmed");
+      showToast("已应用当前版本 JVM 启动预设");
+      return;
+    }
+
     const jvmPresetBtn = e.target.closest("[data-jvm-preset]");
     if (jvmPresetBtn) {
       const nextArgs = jvmPresetBtn.getAttribute("data-jvm-preset") || "";
@@ -4164,16 +4413,6 @@
       syncInstanceUi(window.LauncherBridge.getStateSync(), false);
     }
 
-    if (e.target.id === "custom-folder-color-input") {
-      const st = window.LauncherBridge.getStateSync();
-      await window.LauncherBridge.invoke("set_instance_color", {
-        id: st.activeInstanceId,
-        colorId: "custom",
-        customHex: e.target.value
-      });
-      showToast(`已应用自定义文件夹配色 (${e.target.value})`);
-      syncInstanceColorUi(window.LauncherBridge.getStateSync(), true);
-    }
   });
 
   document.addEventListener("pointerover", (e) => {
@@ -4192,22 +4431,23 @@
     setDockCaption(activeQuickPanel ? labels[activeQuickPanel] || "" : "");
   });
 
-  document.addEventListener("input", async (e) => {
-    if (e.isComposing && ["subpage-search", "quick-mod-search"].includes(e.target.id)) return;
-    if (e.target.id === "subpage-search") {
-      searchQuery = e.target.value;
+  function handleSearchBoxUpdate(target, immediate) {
+    if (!target) return;
+    if (target.id === "subpage-search") {
+      searchQuery = target.value;
       currentPage = 1;
       modPage = 1;
-      e.target.classList.toggle("has-value", Boolean(searchQuery));
+      target.classList.toggle("has-value", Boolean(searchQuery));
       const route = activeSubRoute || currentRoute;
       if (routeToCatalogKey(route)) {
         clearTimeout(onlineSearchTimer);
         clearTimeout(catalogPrefetchTimer);
         onlineSearchSeq += 1;
-        onlineSearchTimer = setTimeout(() => loadOnlineDownloadPage(route), 240);
+        if (immediate) loadOnlineDownloadPage(route);
+        else onlineSearchTimer = setTimeout(() => loadOnlineDownloadPage(route), 240);
         return;
       }
-      const pos = e.target.selectionStart;
+      const pos = target.selectionStart;
       if (activeSubRoute && document.getElementById("hub-workspace-slot")) {
         syncSubWorkspaceSlot(window.LauncherBridge.getStateSync(), { preserveAnimation: true });
       } else {
@@ -4218,13 +4458,14 @@
         restored.focus();
         restored.setSelectionRange(pos, pos);
       }
+      return;
     }
 
-    if (e.target.id === "quick-mod-search") {
-      modQuery = e.target.value;
+    if (target.id === "quick-mod-search") {
+      modQuery = target.value;
       modPage = 1;
-      e.target.classList.toggle("has-value", Boolean(modQuery));
-      const pos = e.target.selectionStart;
+      target.classList.toggle("has-value", Boolean(modQuery));
+      const pos = target.selectionStart;
       syncQuickPanelUi(window.LauncherBridge.getStateSync(), { quiet: true });
       const restored = document.getElementById("quick-mod-search");
       if (restored) {
@@ -4232,15 +4473,26 @@
         restored.setSelectionRange(pos, pos);
       }
     }
+  }
 
-    if (e.target.id === "custom-folder-color-input") {
-      const st = window.LauncherBridge.getStateSync();
-      await window.LauncherBridge.invoke("set_instance_color", {
-        id: st.activeInstanceId,
-        colorId: "custom",
-        customHex: e.target.value
-      });
-      syncInstanceColorUi(window.LauncherBridge.getStateSync(), false);
+  document.addEventListener("compositionend", (e) => {
+    if (e.target && ["subpage-search", "quick-mod-search"].includes(e.target.id)) {
+      handleSearchBoxUpdate(e.target, false);
+    }
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.isComposing && e.target && e.target.id === "subpage-search") {
+      e.preventDefault();
+      handleSearchBoxUpdate(e.target, true);
+    }
+  });
+
+  document.addEventListener("input", async (e) => {
+    if (e.isComposing && ["subpage-search", "quick-mod-search"].includes(e.target.id)) return;
+    if (e.target.id === "subpage-search" || e.target.id === "quick-mod-search") {
+      handleSearchBoxUpdate(e.target, false);
+      return;
     }
 
     if (e.target.id === "ram-slider") {
@@ -4263,9 +4515,17 @@
     if (e.target.id === "quick-jvm-args") {
       syncJvmTextareaHeight(e.target);
       const st = window.LauncherBridge.getStateSync();
+      const val = e.target.value;
       await window.LauncherBridge.invoke("update_instance_settings", {
         id: st.activeInstanceId,
-        jvmArgs: e.target.value
+        jvmArgs: val
+      });
+      document.querySelectorAll("[data-quick-jvm-preset]").forEach((b) => {
+        const p = b.getAttribute("data-quick-jvm-preset") || "";
+        const match = (p.includes("UseZGC") && val.includes("UseZGC"))
+          || (p.includes("UseG1GC") && val.includes("UseG1GC"))
+          || (p.includes("UseShenandoahGC") && val.includes("UseShenandoahGC"));
+        b.classList.toggle("is-active", match);
       });
     }
   });
@@ -4634,8 +4894,317 @@
     });
   }
 
+  /* ---------- Theme-Adaptive SVG Background Pattern Cycler ---------- */
+  const BG_PATTERN_PRESETS = [
+    { id: "none", name: "无", url: "", size: "156px 156px" },
+    { id: "festive", name: "冬日礼赞", url: "assets/patterns/festive.svg", size: "156px 156px" }
+  ];
+  let currentBgPatternIndex = 0;
+
+  function syncBgPatternButtonUi(animateBtn) {
+    const preset = BG_PATTERN_PRESETS[currentBgPatternIndex] || BG_PATTERN_PRESETS[0];
+    const btn = document.getElementById("btn-cycle-bg-pattern");
+    if (!btn) return;
+    btn.dataset.bgPattern = preset.id;
+    btn.removeAttribute("data-tooltip");
+    btn.setAttribute("aria-label", `切换版本背景（当前：${preset.name}）`);
+    btn.classList.toggle("is-pattern-on", preset.id !== "none");
+    if (animateBtn && !prefersReducedMotion()) {
+      btn.classList.remove("is-spinning");
+      void btn.offsetWidth;
+      btn.classList.add("is-spinning");
+    }
+  }
+
+  function applyBgPattern(patternId, { persist = false, animateBtn = false } = {}) {
+    const idx = BG_PATTERN_PRESETS.findIndex((p) => p.id === patternId);
+    currentBgPatternIndex = idx >= 0 ? idx : 0;
+    const preset = BG_PATTERN_PRESETS[currentBgPatternIndex];
+    const layer = document.getElementById("bg-pattern-layer");
+    if (layer) {
+      if (preset.url) {
+        let resolvedUrl = preset.url;
+        try {
+          resolvedUrl = new URL(preset.url, document.baseURI).href;
+        } catch {}
+        const cssUrl = `url("${resolvedUrl}")`;
+        const cssSize = preset.size || "156px 156px";
+        layer.style.setProperty("--bg-pattern-url", cssUrl);
+        layer.style.setProperty("--bg-pattern-size", cssSize);
+        layer.style.webkitMaskImage = cssUrl;
+        layer.style.maskImage = cssUrl;
+        layer.style.webkitMaskSize = cssSize;
+        layer.style.maskSize = cssSize;
+        if (!layer.classList.contains("is-active")) {
+          void layer.offsetWidth;
+          layer.classList.add("is-active");
+        }
+      } else {
+        layer.classList.remove("is-active");
+      }
+    }
+    syncBgPatternButtonUi(animateBtn);
+    if (persist) {
+      window.LauncherBridge.invoke("set_bg_pattern", { bgPatternId: preset.id }).catch(() => {});
+    }
+  }
+
+  function cycleBgPattern() {
+    const next = BG_PATTERN_PRESETS[(currentBgPatternIndex + 1) % BG_PATTERN_PRESETS.length];
+    applyBgPattern(next.id, { persist: true, animateBtn: true });
+  }
+
+  function syncPinButtonUi(pinned) {
+    const btn = document.getElementById("btn-toggle-pin");
+    if (!btn) return;
+    const isPinned = Boolean(pinned);
+    btn.classList.toggle("is-active", isPinned);
+    btn.setAttribute("aria-pressed", String(isPinned));
+    btn.setAttribute("aria-label", isPinned ? "取消窗口置顶" : "窗口置顶");
+  }
+
+  /* ---------- Launcher-Themed Custom Color Picker Controller ---------- */
+  function initDclColorPicker() {
+    const pop = document.getElementById("dcl-color-picker");
+    const svEl = document.getElementById("dcl-cp-sv");
+    const svThumb = document.getElementById("dcl-cp-sv-thumb");
+    const hueEl = document.getElementById("dcl-cp-hue");
+    const hueThumb = document.getElementById("dcl-cp-hue-thumb");
+    const previewEl = document.getElementById("dcl-cp-preview");
+    const hexInput = document.getElementById("dcl-cp-hex");
+    const rInput = document.getElementById("dcl-cp-r");
+    const gInput = document.getElementById("dcl-cp-g");
+    const bInput = document.getElementById("dcl-cp-b");
+    if (!pop || !svEl || !hueEl) return;
+
+    let cpH = 28, cpS = 0.85, cpV = 0.9;
+    let cpOpen = false;
+    let cpCommitTimer = null;
+    let cpCloseTimer = null;
+
+    const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+    function hsvToRgb(h, s, v) {
+      const c = v * s;
+      const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+      const m = v - c;
+      let r = 0, g = 0, b = 0;
+      if (h < 60) [r, g, b] = [c, x, 0];
+      else if (h < 120) [r, g, b] = [x, c, 0];
+      else if (h < 180) [r, g, b] = [0, c, x];
+      else if (h < 240) [r, g, b] = [0, x, c];
+      else if (h < 300) [r, g, b] = [x, 0, c];
+      else [r, g, b] = [c, 0, x];
+      return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)];
+    }
+    function rgbToHsv(r, g, b) {
+      const rn = r / 255, gn = g / 255, bn = b / 255;
+      const max = Math.max(rn, gn, bn), min = Math.min(rn, gn, bn);
+      const d = max - min;
+      let h = 0;
+      if (d !== 0) {
+        if (max === rn) h = 60 * (((gn - bn) / d) % 6);
+        else if (max === gn) h = 60 * ((bn - rn) / d + 2);
+        else h = 60 * ((rn - gn) / d + 4);
+      }
+      if (h < 0) h += 360;
+      const s = max === 0 ? 0 : d / max;
+      return [h, s, max];
+    }
+    function rgbToHex(r, g, b) {
+      return "#" + [r, g, b].map((x) => clamp(Math.round(x), 0, 255).toString(16).padStart(2, "0")).join("");
+    }
+    function parseHex(str) {
+      const m = String(str || "").trim().match(/^#?([0-9a-f]{6})$/i);
+      if (!m) return null;
+      const n = parseInt(m[1], 16);
+      return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    }
+
+    function syncPickerVisuals() {
+      const [r, g, b] = hsvToRgb(cpH, cpS, cpV);
+      const hex = rgbToHex(r, g, b);
+      svEl.style.backgroundColor = `hsl(${Math.round(cpH)}, 100%, 50%)`;
+      svThumb.style.left = `${(cpS * 100).toFixed(2)}%`;
+      svThumb.style.top = `${((1 - cpV) * 100).toFixed(2)}%`;
+      hueThumb.style.left = `${((cpH / 360) * 100).toFixed(2)}%`;
+      hueThumb.style.background = `hsl(${Math.round(cpH)}, 100%, 50%)`;
+      previewEl.style.background = hex;
+      if (document.activeElement !== hexInput) hexInput.value = hex.toUpperCase();
+      if (document.activeElement !== rInput) rInput.value = String(r);
+      if (document.activeElement !== gInput) gInput.value = String(g);
+      if (document.activeElement !== bInput) bInput.value = String(b);
+      return hex;
+    }
+
+    function applyColorToActiveInstance(hex, immediate) {
+      const btn = document.getElementById("btn-open-custom-color");
+      if (btn) btn.dataset.customHex = hex;
+      const send = async () => {
+        const st = window.LauncherBridge.getStateSync();
+        if (!st?.activeInstanceId) return;
+        await window.LauncherBridge.invoke("set_instance_color", {
+          id: st.activeInstanceId,
+          colorId: "custom",
+          customHex: hex
+        });
+        syncInstanceColorUi(window.LauncherBridge.getStateSync(), false);
+      };
+      clearTimeout(cpCommitTimer);
+      if (immediate) send();
+      else cpCommitTimer = setTimeout(send, 45);
+    }
+
+    function setFromHex(hex, commit) {
+      const rgb = parseHex(hex);
+      if (!rgb) return;
+      [cpH, cpS, cpV] = rgbToHsv(rgb[0], rgb[1], rgb[2]);
+      const outHex = syncPickerVisuals();
+      if (commit) applyColorToActiveInstance(outHex, true);
+    }
+
+    function openPicker(anchorBtn) {
+      clearTimeout(cpCloseTimer);
+      const initialHex = anchorBtn?.dataset?.customHex || "#e67e22";
+      setFromHex(initialHex, false);
+      pop.hidden = false;
+      const rect = anchorBtn.getBoundingClientRect();
+      const popW = 264;
+      const popH = pop.offsetHeight || 296;
+      const pad = 12;
+      let left = rect.left;
+      if (left + popW > window.innerWidth - pad) left = Math.max(pad, window.innerWidth - popW - pad);
+      let top = rect.bottom + 8;
+      if (top + popH > window.innerHeight - pad) top = Math.max(pad, rect.top - popH - 8);
+      pop.style.left = `${Math.round(left)}px`;
+      pop.style.top = `${Math.round(top)}px`;
+      anchorBtn.classList.add("is-active");
+      anchorBtn.setAttribute("aria-expanded", "true");
+      cpOpen = true;
+      void pop.offsetWidth;
+      pop.classList.add("is-open");
+    }
+
+    function closePicker() {
+      if (!cpOpen) return;
+      cpOpen = false;
+      pop.classList.remove("is-open");
+      const openBtn = document.getElementById("btn-open-custom-color");
+      if (openBtn) {
+        openBtn.classList.remove("is-active");
+        openBtn.setAttribute("aria-expanded", "false");
+      }
+      clearTimeout(cpCloseTimer);
+      cpCloseTimer = setTimeout(() => {
+        if (!cpOpen) pop.hidden = true;
+      }, 190);
+    }
+
+    function bindDrag(el, onMove) {
+      let dragging = false;
+      const handle = (ev, immediate) => {
+        const rect = el.getBoundingClientRect();
+        if (!rect.width || !rect.height) return;
+        const x = clamp((ev.clientX - rect.left) / rect.width, 0, 1);
+        const y = clamp((ev.clientY - rect.top) / rect.height, 0, 1);
+        onMove(x, y, immediate);
+      };
+      el.addEventListener("pointerdown", (ev) => {
+        ev.preventDefault();
+        dragging = true;
+        el.setPointerCapture?.(ev.pointerId);
+        handle(ev, false);
+      });
+      el.addEventListener("pointermove", (ev) => {
+        if (!dragging) return;
+        handle(ev, false);
+      });
+      const stop = (ev) => {
+        if (!dragging) return;
+        dragging = false;
+        handle(ev, true);
+      };
+      el.addEventListener("pointerup", stop);
+      el.addEventListener("pointercancel", stop);
+    }
+
+    bindDrag(svEl, (x, y, immediate) => {
+      cpS = x;
+      cpV = 1 - y;
+      const hex = syncPickerVisuals();
+      applyColorToActiveInstance(hex, immediate);
+    });
+
+    bindDrag(hueEl, (x, _y, immediate) => {
+      cpH = x * 360;
+      const hex = syncPickerVisuals();
+      applyColorToActiveInstance(hex, immediate);
+    });
+
+    hexInput.addEventListener("input", () => {
+      const rgb = parseHex(hexInput.value);
+      if (!rgb) return;
+      [cpH, cpS, cpV] = rgbToHsv(rgb[0], rgb[1], rgb[2]);
+      const hex = syncPickerVisuals();
+      applyColorToActiveInstance(hex, true);
+    });
+
+    const onRgbInput = () => {
+      const r = clamp(Number(rInput.value) || 0, 0, 255);
+      const g = clamp(Number(gInput.value) || 0, 0, 255);
+      const b = clamp(Number(bInput.value) || 0, 0, 255);
+      [cpH, cpS, cpV] = rgbToHsv(r, g, b);
+      const hex = syncPickerVisuals();
+      applyColorToActiveInstance(hex, true);
+    };
+    rInput.addEventListener("input", onRgbInput);
+    gInput.addEventListener("input", onRgbInput);
+    bInput.addEventListener("input", onRgbInput);
+
+    pop.addEventListener("click", (ev) => {
+      const sw = ev.target.closest("[data-cp-swatch]");
+      if (sw) setFromHex(sw.dataset.cpSwatch, true);
+    });
+
+    document.addEventListener("click", (ev) => {
+      const openBtn = ev.target.closest("#btn-open-custom-color");
+      if (openBtn) {
+        ev.stopPropagation();
+        if (cpOpen) closePicker();
+        else openPicker(openBtn);
+        return;
+      }
+      if (cpOpen && !ev.target.closest("#dcl-color-picker")) {
+        closePicker();
+      }
+    });
+
+    document.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape" && cpOpen) closePicker();
+    });
+
+    window.addEventListener("resize", () => { if (cpOpen) closePicker(); });
+  }
+
   initGlobalTooltips();
   initModMarquee();
+  initDclColorPicker();
+
+  document.addEventListener("click", (e) => {
+    if (e.target.closest("#btn-cycle-bg-pattern")) {
+      cycleBgPattern();
+      return;
+    }
+    const pinBtn = e.target.closest("#btn-toggle-pin");
+    if (pinBtn) {
+      const nextPinned = !pinBtn.classList.contains("is-active");
+      syncPinButtonUi(nextPinned);
+      window.LauncherBridge.invoke("window_set_topmost", { pinned: nextPinned })
+        .then((res) => {
+          if (res && typeof res.alwaysOnTop === "boolean") syncPinButtonUi(res.alwaysOnTop);
+        })
+        .catch(() => {});
+    }
+  });
 
   window.LauncherBridge.ready().then(() => {
     const st = window.LauncherBridge.getStateSync();
@@ -4647,6 +5216,8 @@
         syncPaletteButtonUi(THEME_PRESETS[tIdx]);
       }
     }
+    syncPinButtonUi(Boolean(st.alwaysOnTop));
+    applyBgPattern(st.bgPatternId || "none", { persist: false, animateBtn: false });
     render();
   });
 })();

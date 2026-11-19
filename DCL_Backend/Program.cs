@@ -180,6 +180,7 @@ internal sealed class MainForm : Form
 
         _storage = storage;
         _bridge = new HostBridge(_storage);
+        TopMost = _bridge.AlwaysOnTop;
         _embeddedIndex = BuildEmbeddedResourceLookup();
 
         _webView = new WebView2
@@ -418,6 +419,14 @@ internal sealed class MainForm : Form
                     return new { maximized = WindowState == FormWindowState.Maximized };
                 }),
                 "window_close" => InvokeUi(() => { SendMessage(Handle, 0x0112, 0xF060, 0); return new { ok = true }; }),
+                "window_set_topmost" => InvokeUi(() =>
+                {
+                    bool pinned = payload.ValueKind == JsonValueKind.Object &&
+                                  payload.TryGetProperty("pinned", out var pinEl) &&
+                                  pinEl.ValueKind == JsonValueKind.True;
+                    TopMost = _bridge.SetAlwaysOnTop(pinned);
+                    return new { alwaysOnTop = TopMost };
+                }),
                 "window_start_drag" => InvokeUi(() =>
                 {
                     if (WindowState == FormWindowState.Normal)

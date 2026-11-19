@@ -22,6 +22,7 @@ instances.json
 # Node / scratch / OS / local agent notes
 node_modules/
 AGENTS.md
+pattern.svg
 .DS_Store
 Thumbs.db
 desktop.ini

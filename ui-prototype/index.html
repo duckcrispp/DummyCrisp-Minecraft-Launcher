@@ -30,6 +30,9 @@
     <div class="theme-circle-wipe__inner"></div>
   </div>
 
+  <!-- Theme-Adaptive Tiled SVG Background Pattern Layer -->
+  <div class="bg-pattern-layer" id="bg-pattern-layer" aria-hidden="true"></div>
+
   <!-- Sticky Editorial Header (Unified Left Nav + Brand | Right Controls) -->
   <header class="topbar">
     <div class="topbar-inner">
@@ -213,7 +216,23 @@
           <span class="brand-letter-d">D</span><span class="brand-letter-cl">CL</span>
         </span>
       </button>
-      <button class="portal-close" id="btn-close-drawer" type="button">CLOSE ×</button>
+      <div class="drawer-top-actions">
+        <button class="win-ctrl-btn win-ctrl-btn--drawer-close" id="btn-close-drawer" type="button" aria-label="关闭导航" title="关闭">
+          <span class="filled" aria-hidden="true"></span>
+          <svg class="win-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path class="ico-cross-a" d="M7 7l10 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <path class="ico-cross-b" d="M17 7L7 17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <circle class="ico-cross-core" cx="12" cy="12" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+        </button>
+        <button class="emu-btn emu-btn--drawer-pin" id="btn-toggle-pin" type="button" aria-label="窗口置顶" aria-pressed="false">
+          <span class="filled" aria-hidden="true"></span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 17v5"/>
+            <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>
+          </svg>
+        </button>
+      </div>
     </div>
 
     <nav class="drawer-nav-wrap" aria-label="主功能导航">
@@ -299,6 +318,50 @@
       <button class="chip-btn is-active" id="microsoft-open-browser" type="button" hidden>打开微软登录页</button>
     </div>
   </dialog>
+
+  <!-- Launcher-Themed Custom Color Picker Popover -->
+  <div class="dcl-color-picker" id="dcl-color-picker" role="dialog" aria-label="自定义文件夹颜色" hidden>
+    <div class="dcl-cp-head">
+      <span class="dcl-cp-title">自定义配色</span>
+      <span class="dcl-cp-preview" id="dcl-cp-preview" aria-hidden="true"></span>
+    </div>
+    <div class="dcl-cp-sv" id="dcl-cp-sv" role="slider" aria-label="饱和度与明度" tabindex="0">
+      <div class="dcl-cp-sv-white"></div>
+      <div class="dcl-cp-sv-black"></div>
+      <div class="dcl-cp-sv-thumb" id="dcl-cp-sv-thumb"></div>
+    </div>
+    <div class="dcl-cp-hue-row">
+      <div class="dcl-cp-hue" id="dcl-cp-hue" role="slider" aria-label="色相" tabindex="0">
+        <div class="dcl-cp-hue-thumb" id="dcl-cp-hue-thumb"></div>
+      </div>
+    </div>
+    <div class="dcl-cp-fields">
+      <label class="dcl-cp-field dcl-cp-field--hex">
+        <input class="dcl-cp-input" id="dcl-cp-hex" type="text" maxlength="7" spellcheck="false" autocomplete="off" aria-label="HEX 色值" />
+        <span>HEX</span>
+      </label>
+      <label class="dcl-cp-field">
+        <input class="dcl-cp-input" id="dcl-cp-r" type="number" min="0" max="255" aria-label="红色通道" />
+        <span>R</span>
+      </label>
+      <label class="dcl-cp-field">
+        <input class="dcl-cp-input" id="dcl-cp-g" type="number" min="0" max="255" aria-label="绿色通道" />
+        <span>G</span>
+      </label>
+      <label class="dcl-cp-field">
+        <input class="dcl-cp-input" id="dcl-cp-b" type="number" min="0" max="255" aria-label="蓝色通道" />
+        <span>B</span>
+      </label>
+    </div>
+    <div class="dcl-cp-swatches" aria-label="常用色板">
+      <button class="dcl-cp-swatch" data-cp-swatch="#f5c518" style="background:#f5c518;" type="button" aria-label="电光黄"></button>
+      <button class="dcl-cp-swatch" data-cp-swatch="#e67e22" style="background:#e67e22;" type="button" aria-label="琥珀橙"></button>
+      <button class="dcl-cp-swatch" data-cp-swatch="#e74c3c" style="background:#e74c3c;" type="button" aria-label="绯红"></button>
+      <button class="dcl-cp-swatch" data-cp-swatch="#2ecc71" style="background:#2ecc71;" type="button" aria-label="翡翠绿"></button>
+      <button class="dcl-cp-swatch" data-cp-swatch="#3498db" style="background:#3498db;" type="button" aria-label="天际蓝"></button>
+      <button class="dcl-cp-swatch" data-cp-swatch="#9b59b6" style="background:#9b59b6;" type="button" aria-label="星云紫"></button>
+    </div>
+  </div>
 
   <!-- Toast Notification -->
   <div class="toast-pill" id="toast-pill" role="status" aria-live="polite"></div>

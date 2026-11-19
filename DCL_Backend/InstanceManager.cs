@@ -107,6 +107,13 @@ public sealed class InstanceManager
         var lastPlayed = ReadLastPlayed(dir, saved?.LastPlayedAt);
         bool useGlobal = saved?.UseGlobalSettings ?? true;
         bool autoMemory = saved?.AutoMemory ?? true;
+        string recommendedJvm = ComputeRecommendedJvmArgs(mcVer, bestJava);
+        string resolvedJvm = !string.IsNullOrWhiteSpace(saved?.JvmArgs) ? saved!.JvmArgs : recommendedJvm;
+        // 若首次识别/导入/下载的新版本最优 GC 与全局默认不兼容（如 Java 17/8 版本遇上全局 Gen-ZGC），自动以最优 GC 落地
+        if (saved == null && useGlobal && !IsJvmArgsCompatibleWithJava(cfg.CustomJvmArgs, bestJava, mcVer))
+        {
+            useGlobal = false;
+        }
         return new InstanceMeta
         {
             Id = id,
@@ -116,7 +123,7 @@ public sealed class InstanceManager
             LoaderVersion = loaderVer,
             JavaId = bestJava?.Id ?? "",
             JavaVersion = bestJava != null ? FormatJavaLabel(bestJava.Version) : "未检测到 Java",
-            JvmArgs = !string.IsNullOrWhiteSpace(saved?.JvmArgs) ? saved!.JvmArgs : cfg.CustomJvmArgs,
+            JvmArgs = resolvedJvm,
             IconId = !string.IsNullOrWhiteSpace(saved?.IconId) ? saved!.IconId : "grass",
             CustomIcon = saved?.CustomIcon,
             IsModpack = isModpack,
@@ -135,6 +142,51 @@ public sealed class InstanceManager
             ExternalPath = externalPath,
             ExternalMinecraftDir = externalMcDir
         };
+    }
+
+    internal const string PresetGenZgc = "-XX:+UseZGC -XX:+ZGenerational -Dfile.encoding=UTF-8";
+    internal const string PresetG1Gc = "-XX:+UseG1GC -XX:MaxGCPauseMillis=30 -Dfile.encoding=UTF-8";
+    internal const string PresetShenandoah = "-XX:+UseShenandoahGC -Dfile.encoding=UTF-8";
+
+    internal static int RequiredJavaMajorForMc(string mcVersion)
+    {
+        var m = Regex.Match(mcVersion ?? "", @"^(\d+)\.(\d+)(?:\.(\d+))?");
+        if (!m.Success) return 21;
+        int major = int.Parse(m.Groups[1].Value);
+        int minor = int.Parse(m.Groups[2].Value);
+        int patch = m.Groups[3].Success ? int.Parse(m.Groups[3].Value) : 0;
+        if (major >= 26) return 21;
+        if (major == 1 && (minor >= 21 || (minor == 20 && patch >= 5))) return 21;
+        if (major == 1 && minor >= 18) return 17;
+        if (major == 1 && minor == 17) return 16;
+        return 8;
+    }
+
+    internal static string ComputeRecommendedJvmArgs(string mcVersion, JavaInstallation? java)
+    {
+        int javaMajor = java != null ? JavaManager.ParseMajor(java.Version) : RequiredJavaMajorForMc(mcVersion);
+        if (javaMajor <= 0) javaMajor = RequiredJavaMajorForMc(mcVersion);
+        return javaMajor >= 21 ? PresetGenZgc : PresetG1Gc;
+    }
+
+    internal static bool IsJvmArgsCompatibleWithJava(string? jvmArgs, JavaInstallation? java, string mcVersion)
+    {
+        if (string.IsNullOrWhiteSpace(jvmArgs)) return true;
+        int javaMajor = java != null ? JavaManager.ParseMajor(java.Version) : RequiredJavaMajorForMc(mcVersion);
+        if (javaMajor <= 0) javaMajor = RequiredJavaMajorForMc(mcVersion);
+        if (javaMajor < 21 && (jvmArgs.Contains("ZGenerational", StringComparison.OrdinalIgnoreCase) || jvmArgs.Contains("UseZGC", StringComparison.OrdinalIgnoreCase)))
+            return false;
+        if (javaMajor < 12 && jvmArgs.Contains("UseShenandoahGC", StringComparison.OrdinalIgnoreCase))
+            return false;
+        return true;
+    }
+
+    internal static string ResolveEffectiveJvmArgs(InstanceMeta inst, JavaInstallation? java, DclConfig cfg)
+    {
+        string raw = inst.UseGlobalSettings ? cfg.CustomJvmArgs : (string.IsNullOrWhiteSpace(inst.JvmArgs) ? cfg.CustomJvmArgs : inst.JvmArgs);
+        if (!IsJvmArgsCompatibleWithJava(raw, java, inst.McVersion))
+            return ComputeRecommendedJvmArgs(inst.McVersion, java);
+        return raw;
     }
 
     internal static string? ResolveVersionJsonPath(string dir, string id)
@@ -349,7 +401,7 @@ public sealed class InstanceManager
         return File.Exists(log) ? File.GetLastWriteTimeUtc(log) : null;
     }
 
-    private static (string McVersion, string Loader, string LoaderVersion) DetectVersionMetadata(string jsonPath, string fallbackId)
+    internal static (string McVersion, string Loader, string LoaderVersion) DetectVersionMetadata(string jsonPath, string fallbackId)
     {
         try
         {

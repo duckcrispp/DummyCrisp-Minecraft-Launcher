@@ -356,18 +356,22 @@ public sealed class MinecraftApiService
         int limit,
         CancellationToken ct,
         string sortBy = "downloads",
-        string mcVersion = "")
+        string mcVersion = "",
+        string resourceTag = "",
+        string resourceSubTag = "")
     {
         string category = Category(projectType);
         string verFilter = string.IsNullOrWhiteSpace(mcVersion) || mcVersion.Equals("all", StringComparison.OrdinalIgnoreCase)
             ? ""
             : mcVersion.Trim();
+        string mrTag = ResolveModrinthTag(category, resourceTag);
+        string mrSubTag = ResolveModrinthTag(category, resourceSubTag);
         bool sortNewest = sortBy.Equals("newest", StringComparison.OrdinalIgnoreCase);
 
         var localized = FindLocalizedNames(category, query);
         if (localized.Length > 0)
         {
-            var matched = await FindModrinthLocalizedProjectsAsync(projectType, category, localized, loaderFilter, verFilter, sortNewest, ct);
+            var matched = await FindModrinthLocalizedProjectsAsync(projectType, category, localized, loaderFilter, verFilter, mrTag, mrSubTag, sortNewest, ct);
             var page = matched.Skip(offset).Take(limit).ToList();
             RememberSearchProjects(category, page);
             return (page, matched.Count);
@@ -377,6 +381,10 @@ public sealed class MinecraftApiService
         var facetGroups = new List<string[]> { new[] { $"project_type:{projectType}" } };
         if (projectType is "mod" or "modpack" && !loaderFilter.Equals("all", StringComparison.OrdinalIgnoreCase))
             facetGroups.Add([$"categories:{loaderFilter.ToLowerInvariant()}"]);
+        if (mrTag.Length > 0)
+            facetGroups.Add([$"categories:{mrTag}"]);
+        if (mrSubTag.Length > 0 && !mrSubTag.Equals(mrTag, StringComparison.OrdinalIgnoreCase))
+            facetGroups.Add([$"categories:{mrSubTag}"]);
         if (verFilter.Length > 0)
             facetGroups.Add([$"versions:{verFilter}"]);
 
@@ -394,9 +402,9 @@ public sealed class MinecraftApiService
     }
 
     private async Task<List<Dictionary<string, object?>>> FindModrinthLocalizedProjectsAsync(
-        string projectType, string category, LocalizedResource[] localized, string loader, string verFilter, bool sortNewest, CancellationToken ct)
+        string projectType, string category, LocalizedResource[] localized, string loader, string verFilter, string mrTag, string mrSubTag, bool sortNewest, CancellationToken ct)
     {
-        var ids = localized.SelectMany(item => item.Ids).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var ids = localized.SelectMany(item => item.Ids).Distinct(StringComparer.OrdinalIgnoreCase).Take(50).ToArray();
         var ranking = ids.Select((id, index) => (Id: NormalizeId(id), Index: index))
             .DistinctBy(entry => entry.Id).ToDictionary(entry => entry.Id, entry => entry.Index);
         var hits = new List<(int Rank, DateTimeOffset Published, Dictionary<string, object?> Item)>();
@@ -413,8 +421,11 @@ public sealed class MinecraftApiService
                 if (!ranking.TryGetValue(slug, out int rank)) continue;
                 string[] loaders = Strings(project, "loaders").Select(Loader).Distinct().ToArray();
                 string[] gameVers = Strings(project, "game_versions");
+                string[] cats = Strings(project, "categories");
                 if (category is "mods" or "modpacks" && !loader.Equals("all", StringComparison.OrdinalIgnoreCase) &&
                     !loaders.Contains(loader, StringComparer.OrdinalIgnoreCase)) continue;
+                if (mrTag.Length > 0 && !cats.Contains(mrTag, StringComparer.OrdinalIgnoreCase)) continue;
+                if (mrSubTag.Length > 0 && !cats.Contains(mrSubTag, StringComparer.OrdinalIgnoreCase)) continue;
                 if (verFilter.Length > 0 && !gameVers.Contains(verFilter, StringComparer.OrdinalIgnoreCase)) continue;
                 DateTimeOffset created = Date(Text(project, "published"));
                 hits.Add((rank, created, CreateModrinthCatalogItem(category, projectType, project, id, loaders, gameVers)));
@@ -430,17 +441,19 @@ public sealed class MinecraftApiService
         string category, string projectType, JsonElement project, string projectId, string[] loaders, string[] versions)
     {
         string slug = Text(project, "slug", projectId);
-        string chineseName = ChineseName(category, slug);
+        string enName = Text(project, "title", slug);
+        string chineseName = ChineseName(category, slug, enName);
         long dlCount = Number(project, "downloads");
-        string dlText = dlCount >= 1_000_000 ? $"{dlCount / 1_000_000.0:F1}M" : $"{Math.Max(1, dlCount / 1000)}K";
+        string dlText = DownloadCount(dlCount);
         return new Dictionary<string, object?>
         {
             ["id"] = $"mr-{projectId}", ["projectId"] = projectId, ["slug"] = slug,
             ["cnName"] = chineseName, ["pinyin"] = PinyinForName(chineseName),
-            ["enName"] = Text(project, "title", slug), ["summary"] = Text(project, "description"),
+            ["enName"] = enName, ["summary"] = Text(project, "description"),
             ["author"] = Text(project, "author"), ["icon"] = Text(project, "icon_url", "assets/mc-icons/cobblestone.png"),
             ["downloads"] = dlText, ["loaders"] = loaders, ["mcVersions"] = VersionRange(versions),
-            ["source"] = "Modrinth", ["webUrl"] = $"https://modrinth.com/{projectType}/{Uri.EscapeDataString(slug)}"
+            ["source"] = ResolveSourceLabel(category, slug, enName, "Modrinth"),
+            ["webUrl"] = $"https://modrinth.com/{projectType}/{Uri.EscapeDataString(slug)}"
         };
     }
 
@@ -616,10 +629,11 @@ public sealed class MinecraftApiService
             throw new InvalidDataException("此项目与当前资源分类不匹配");
 
         string slug = Text(project, "slug", projectId);
+        string enName = Text(project, "title", slug);
         return new Dictionary<string, object?>
         {
             ["id"] = $"mr-{projectId}", ["projectId"] = projectId, ["slug"] = slug, ["source"] = "Modrinth",
-            ["enName"] = Text(project, "title", slug), ["cnName"] = ChineseName(category, slug),
+            ["enName"] = enName, ["cnName"] = ChineseName(category, slug, enName),
             ["summary"] = Text(project, "description"), ["webUrl"] = $"https://modrinth.com/{type}/{Uri.EscapeDataString(slug)}",
             ["icon"] = Text(project, "icon_url", "assets/mc-icons/cobblestone.png"), ["downloads"] = DownloadCount(Number(project, "downloads"))
         };

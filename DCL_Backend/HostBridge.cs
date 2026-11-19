@@ -25,6 +25,15 @@ public sealed class HostBridge
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _pendingPreSpawnLaunches = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, (DateTimeOffset Expires, Dictionary<string, object?> Project, List<ResourceFile> Files)> _resourceCache = new();
 
+    public bool AlwaysOnTop => _cfg.AlwaysOnTop;
+
+    public bool SetAlwaysOnTop(bool pinned)
+    {
+        _cfg.AlwaysOnTop = pinned;
+        _storage.SaveConfig(_cfg);
+        return _cfg.AlwaysOnTop;
+    }
+
     private string DownloadSource => _cfg.AutoMirror ? "最优" : _cfg.MirrorSource;
 
     // 发行前填入在 Azure / Microsoft Entra 注册并获 Mojang 审批通过的公共客户端 Application (client) ID（UUID）
@@ -32,7 +41,9 @@ public sealed class HostBridge
 
     private string MicrosoftClientId =>
         FirstNonEmpty(Environment.GetEnvironmentVariable("DCL_MICROSOFT_CLIENT_ID"), _cfg.MicrosoftClientId, DefaultMicrosoftClientId);
-    private string CurseForgeKey => (Environment.GetEnvironmentVariable("DCL_CURSEFORGE_API_KEY") ?? _cfg.CurseForgeApiKey).Trim();
+    private string CurseForgeKey =>
+        FirstNonEmpty(Environment.GetEnvironmentVariable("DCL_CURSEFORGE_API_KEY"), _cfg.CurseForgeApiKey, BuildSecrets.CurseForgeApiKey);
+    private string CurseForgeApiRoute => "auto";
 
     private static string FirstNonEmpty(params string?[] values) =>
         values.Select(v => (v ?? "").Trim()).FirstOrDefault(v => v.Length > 0) ?? "";
@@ -304,8 +315,11 @@ public sealed class HostBridge
             jvmPreset = _cfg.JvmPreset,
             customJvmArgs = _cfg.CustomJvmArgs,
             themeId = _cfg.ThemeId,
+            bgPatternId = _cfg.BgPatternId == "festive" ? "festive" : "none",
+            alwaysOnTop = _cfg.AlwaysOnTop,
             hasMicrosoftClientId = MicrosoftClientId.Length > 0,
             hasCurseForgeApiKey = CurseForgeKey.Length > 0,
+            curseForgeApiRoute = CurseForgeApiRoute,
             officialJavas = new[]
             {
                 new { id = "off-25", version = "25", fullVersion = "25.0.0", channel = "Latest", vendor = "Adoptium / Oracle", url = "https://adoptium.net/", size = "184 MB", note = "最新官方特性发布版" },
@@ -348,6 +362,14 @@ public sealed class HostBridge
                 return new { themeId = _cfg.ThemeId };
             }
 
+            case "set_bg_pattern":
+            {
+                string nextPattern = GetStr(payload, "bgPatternId", "none");
+                _cfg.BgPatternId = nextPattern == "festive" ? "festive" : "none";
+                _storage.SaveConfig(_cfg);
+                return new { bgPatternId = _cfg.BgPatternId };
+            }
+
             case "set_active_instance":
             {
                 string id = GetStr(payload, "id");
@@ -386,6 +408,17 @@ public sealed class HostBridge
                 }
                 _storage.Log($"下载源设置为 {DownloadSource}，应用于后续任务");
                 return new { mirror = _cfg.MirrorSource, auto = _cfg.AutoMirror, mirrors = BuildMirrorSnapshotDto(false) };
+            }
+
+            case "set_curseforge_route":
+            {
+                string nextRoute = CurseForgeService.NormalizeRoute(GetStr(payload, "route", "auto"));
+                _cfg.CurseForgeApiRoute = nextRoute;
+                _storage.SaveConfig(_cfg);
+                foreach (var k in _resourceCache.Keys.Where(k => k.Contains(":cf-", StringComparison.Ordinal)).ToArray())
+                    _resourceCache.TryRemove(k, out _);
+                _storage.Log($"CurseForge 接口线路设置为 {nextRoute}");
+                return new { curseForgeApiRoute = _cfg.CurseForgeApiRoute };
             }
 
             case "set_memory":
@@ -727,14 +760,20 @@ public sealed class HostBridge
                 string loader = GetStr(payload, "loader", "all");
                 string sortBy = GetStr(payload, "sortBy", "downloads");
                 string mcVersion = GetStr(payload, "mcVersion", "all");
+                string resourceTag = GetStr(payload, "tag", "all");
+                string resourceSubTag = GetStr(payload, "subTag", "all");
                 int page = Math.Clamp(GetInt(payload, "page", 1), 1, 100000);
                 int pageSize = Math.Clamp(GetInt(payload, "pageSize", 50), 10, 50);
                 int explicitOffset = GetInt(payload, "offset", -1);
                 int offset = explicitOffset >= 0 ? explicitOffset : (page - 1) * pageSize;
                 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-                var (items, totalHits) = GetStr(payload, "source") == "CurseForge"
-                    ? await _curseForge.SearchAsync(category, query, loader, offset, pageSize, CurseForgeKey, timeout.Token, sortBy, mcVersion)
-                    : await _mcApi.SearchModrinthPagedAsync(ResourceCatalog.ProjectType(category), query, loader, offset, pageSize, timeout.Token, sortBy, mcVersion);
+                string source = GetStr(payload, "source", "all");
+                var (items, totalHits) = source switch
+                {
+                    "CurseForge" => await _curseForge.SearchAsync(category, query, loader, offset, pageSize, CurseForgeKey, timeout.Token, sortBy, mcVersion, CurseForgeApiRoute, resourceTag, resourceSubTag),
+                    "Modrinth" => await _mcApi.SearchModrinthPagedAsync(ResourceCatalog.ProjectType(category), query, loader, offset, pageSize, timeout.Token, sortBy, mcVersion, resourceTag, resourceSubTag),
+                    _ => await SearchCombinedCatalogAsync(category, query, loader, offset, pageSize, sortBy, mcVersion, resourceTag, resourceSubTag, timeout.Token)
+                };
                 return new { items, totalHits, page, pageSize, offset };
             }
 
@@ -963,7 +1002,7 @@ public sealed class HostBridge
                 int memMb = useAutoMem
                     ? (inst.UseGlobalSettings ? _cfg.MemoryMb : inst.MemoryMb)
                     : (inst.UseGlobalSettings ? _cfg.MemoryMb : inst.MemoryMb);
-                string jvmArgs = inst.UseGlobalSettings ? _cfg.CustomJvmArgs : inst.JvmArgs;
+                string jvmArgs = InstanceManager.ResolveEffectiveJvmArgs(inst, java, _cfg);
                 var acc = _accMgr.GetActiveAccount();
 
                 if (_pendingPreSpawnLaunches.ContainsKey(inst.Id))
@@ -1078,10 +1117,11 @@ public sealed class HostBridge
         string name = project.GetValueOrDefault("cnName")?.ToString() ?? "";
         if (name.Length == 0) name = project["enName"]?.ToString() ?? "";
         string key = CurseForgeKey;
+        string cfRoute = CurseForgeApiRoute;
         _hasUnseenDownloadBall = true;
         return _dlMgr.Enqueue(name, build.Title, icon, source, ResourceCatalog.SizeLabel(build.Size), async (_, progress, ct) =>
         {
-            await _packInstaller.InstallAsync(id, source, name, build, mirror, _javas, key, progress, ct);
+            await _packInstaller.InstallAsync(id, source, name, build, mirror, _javas, key, progress, ct, cfRoute);
             RefreshLocalWorkspace();
             PushEvent?.Invoke("workspace_refreshed", BuildStateDto());
         }, uniqueKey: id);
@@ -1175,14 +1215,23 @@ public sealed class HostBridge
                     }
 
                     _storage.RegisterExternalInstancePath(targetId, normalizedSrc, mcRoot);
+                    var resolvedJson = InstanceManager.ResolveVersionJsonPath(normalizedSrc, targetId);
+                    var (detMcVer, _, _) = resolvedJson != null
+                        ? InstanceManager.DetectVersionMetadata(resolvedJson, Path.GetFileNameWithoutExtension(resolvedJson))
+                        : ("", "Vanilla", "");
+                    var matchedJava = InstanceManager.PickJavaForMcVersion(_javas, detMcVer, null);
+                    string optJvm = InstanceManager.ComputeRecommendedJvmArgs(detMcVer, matchedJava);
+                    bool compatWithGlobal = InstanceManager.IsJvmArgsCompatibleWithJava(_cfg.CustomJvmArgs, matchedJava, detMcVer);
                     metaMap[targetId] = new InstanceMeta
                     {
                         Id = targetId,
                         Name = rawId,
                         ExternalPath = normalizedSrc,
                         ExternalMinecraftDir = mcRoot,
+                        JavaId = matchedJava?.Id ?? "",
+                        JvmArgs = optJvm,
                         Isolated = true,
-                        UseGlobalSettings = true,
+                        UseGlobalSettings = compatWithGlobal,
                         AutoMemory = true
                     };
                     existingPaths.Add(normalizedSrc);
@@ -1239,6 +1288,118 @@ public sealed class HostBridge
             .ThenByDescending(file => file.Published).ToArray();
     }
 
+    private async Task<(List<Dictionary<string, object?>> Items, int TotalHits)> SearchCombinedCatalogAsync(
+        string category, string query, string loader, int offset, int pageSize, string sortBy, string mcVersion, string resourceTag, string resourceSubTag, CancellationToken ct)
+    {
+        const int cfHardCap = 10000;
+        // Beyond CurseForge's 10,000 API pagination cap, seamlessly continue paging Modrinth
+        if (offset >= cfHardCap * 2)
+        {
+            int mrOnlyOffset = offset - cfHardCap;
+            var (mrOnlyItems, mrOnlyTotal) = await SafeSearchAsync(
+                () => _mcApi.SearchModrinthPagedAsync(ResourceCatalog.ProjectType(category), query, loader, mrOnlyOffset, pageSize, ct, sortBy, mcVersion, resourceTag, resourceSubTag));
+            return (mrOnlyItems.Take(pageSize).ToList(), mrOnlyTotal + cfHardCap);
+        }
+
+        int mrOffset = (offset + 1) / 2;
+        int cfOffset = offset / 2;
+        int mrBase = Math.Max(1, (offset + pageSize + 1) / 2 - mrOffset);
+        int cfBase = Math.Max(1, (offset + pageSize) / 2 - cfOffset);
+        int mrLimit = Math.Min(50, mrBase + 5);
+        int cfLimit = Math.Min(50, cfBase + 5);
+
+        Task<(List<Dictionary<string, object?>> Items, int TotalHits)> mrTask = SafeSearchAsync(
+            () => _mcApi.SearchModrinthPagedAsync(ResourceCatalog.ProjectType(category), query, loader, mrOffset, mrLimit, ct, sortBy, mcVersion, resourceTag, resourceSubTag));
+        Task<(List<Dictionary<string, object?>> Items, int TotalHits)> cfTask = cfOffset + cfLimit <= cfHardCap
+            ? SafeSearchAsync(() => _curseForge.SearchAsync(category, query, loader, cfOffset, cfLimit, CurseForgeKey, ct, sortBy, mcVersion, CurseForgeApiRoute, resourceTag, resourceSubTag))
+            : Task.FromResult((new List<Dictionary<string, object?>>(), cfHardCap));
+
+        await Task.WhenAll(mrTask, cfTask);
+        var (mrItems, mrTotal) = mrTask.Result;
+        var (cfItems, cfTotal) = cfTask.Result;
+        int effectiveCfTotal = Math.Min(cfHardCap, cfTotal);
+        int combinedTotal = mrTotal + effectiveCfTotal;
+
+        if (mrItems.Count == 0 && cfItems.Count == 0) return ([], 0);
+        if (cfItems.Count == 0)
+        {
+            // When CF ran out earlier than offset, pull full pageSize from Modrinth at exact remainder offset
+            if (mrItems.Count < pageSize && offset > effectiveCfTotal)
+            {
+                int fallbackMrOffset = Math.Max(0, offset - effectiveCfTotal);
+                var (extraMr, extraTotal) = await SafeSearchAsync(
+                    () => _mcApi.SearchModrinthPagedAsync(ResourceCatalog.ProjectType(category), query, loader, fallbackMrOffset, pageSize, ct, sortBy, mcVersion, resourceTag, resourceSubTag));
+                if (extraMr.Count > 0) return (extraMr.Take(pageSize).ToList(), extraTotal + effectiveCfTotal);
+            }
+            return (mrItems.Take(pageSize).ToList(), Math.Max(mrTotal, combinedTotal));
+        }
+        if (mrItems.Count == 0) return (cfItems.Take(pageSize).ToList(), Math.Max(effectiveCfTotal, combinedTotal));
+
+        var merged = new List<Dictionary<string, object?>>(mrItems.Count + cfItems.Count);
+        var seen = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        static string MergeKey(Dictionary<string, object?> item)
+        {
+            string raw = (item.GetValueOrDefault("slug")?.ToString() ?? item.GetValueOrDefault("enName")?.ToString() ?? "").Trim();
+            var sb = new StringBuilder(raw.Length);
+            foreach (char c in raw)
+            {
+                if (char.IsLetterOrDigit(c)) sb.Append(char.ToLowerInvariant(c));
+            }
+            return sb.Length > 0 ? sb.ToString() : (item.GetValueOrDefault("id")?.ToString() ?? "");
+        }
+
+        static double ParseDownloadsScore(Dictionary<string, object?> item)
+        {
+            string text = (item.GetValueOrDefault("downloads")?.ToString() ?? "").Trim().Replace("次", "").Trim().ToUpperInvariant();
+            if (text.Length == 0) return 0;
+            double mult = 1;
+            if (text.EndsWith('亿')) { mult = 100_000_000; text = text[..^1].Trim(); }
+            else if (text.EndsWith('万')) { mult = 10_000; text = text[..^1].Trim(); }
+            else if (text.EndsWith('B')) { mult = 1_000_000_000; text = text[..^1].Trim(); }
+            else if (text.EndsWith('M')) { mult = 1_000_000; text = text[..^1].Trim(); }
+            else if (text.EndsWith('K')) { mult = 1_000; text = text[..^1].Trim(); }
+            return double.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double v)
+                ? v * mult : 0;
+        }
+
+        void AddMerged(Dictionary<string, object?> item)
+        {
+            string k = MergeKey(item);
+            if (seen.TryGetValue(k, out int existingIdx))
+            {
+                var existing = merged[existingIdx];
+                existing["source"] = "CurseForge/Modrinth";
+                if (ParseDownloadsScore(item) > ParseDownloadsScore(existing))
+                    existing["downloads"] = item.GetValueOrDefault("downloads");
+                return;
+            }
+            seen[k] = merged.Count;
+            merged.Add(item);
+        }
+
+        int max = Math.Max(mrItems.Count, cfItems.Count);
+        for (int i = 0; i < max; i++)
+        {
+            if (i < mrItems.Count) AddMerged(mrItems[i]);
+            if (i < cfItems.Count) AddMerged(cfItems[i]);
+        }
+
+        if (!sortBy.Equals("newest", StringComparison.OrdinalIgnoreCase))
+        {
+            merged.Sort((a, b) => ParseDownloadsScore(b).CompareTo(ParseDownloadsScore(a)));
+        }
+
+        return (merged.Take(pageSize).ToList(), combinedTotal);
+    }
+
+    private static async Task<(List<Dictionary<string, object?>> Items, int TotalHits)> SafeSearchAsync(
+        Func<Task<(List<Dictionary<string, object?>> Items, int TotalHits)>> action)
+    {
+        try { return await action(); }
+        catch { return ([], 0); }
+    }
+
     private async Task<(Dictionary<string, object?> Project, List<ResourceFile> Files)> GetResourceAsync(string category, string reference)
     {
         if (reference.Length < 4 || !(reference.StartsWith("mr-", StringComparison.Ordinal) || reference.StartsWith("cf-", StringComparison.Ordinal)))
@@ -1249,7 +1410,7 @@ public sealed class HostBridge
 
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
         var (project, files) = reference.StartsWith("cf-", StringComparison.Ordinal)
-            ? await _curseForge.GetResourceAsync(category, reference[3..], CurseForgeKey, timeout.Token)
+            ? await _curseForge.GetResourceAsync(category, reference[3..], CurseForgeKey, timeout.Token, CurseForgeApiRoute)
             : await _mcApi.GetModrinthResourceAsync(category, reference[3..], timeout.Token);
         if (_resourceCache.Count >= 24)
         {

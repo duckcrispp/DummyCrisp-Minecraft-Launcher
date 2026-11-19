@@ -25,7 +25,7 @@ internal sealed class ModpackInstaller(StorageService storage, DownloadManager d
 
     internal async Task InstallAsync(string id, string source, string name, ResourceFile build, string mirror,
         IReadOnlyList<JavaInstallation> javas, string curseForgeKey,
-        IProgress<(int Progress, string Speed)> progress, CancellationToken ct)
+        IProgress<(int Progress, string Speed)> progress, CancellationToken ct, string curseForgeRoute = "auto")
     {
         string final = storage.GameDirectory(id);
         if (Directory.Exists(final)) throw new InvalidOperationException("该整合包构建已安装，可在版本实例列表中找到。");
@@ -47,7 +47,7 @@ internal sealed class ModpackInstaller(StorageService storage, DownloadManager d
 
             using var archive = ZipFile.OpenRead(archivePath);
             var plan = source == "CurseForge"
-                ? await ReadCurseForgePlanAsync(archive, curseForgeKey, ct)
+                ? await ReadCurseForgePlanAsync(archive, curseForgeKey, curseForgeRoute, ct)
                 : ReadModrinthPlan(archive);
             ValidateVersionComponent(plan.Minecraft, "Minecraft 版本");
             if (plan.Loader != "Vanilla") ValidateVersionComponent(plan.LoaderVersion, "加载器版本");
@@ -167,7 +167,7 @@ internal sealed class ModpackInstaller(StorageService storage, DownloadManager d
             files, "overrides", "client-overrides");
     }
 
-    private async Task<PackPlan> ReadCurseForgePlanAsync(ZipArchive archive, string key, CancellationToken ct)
+    private async Task<PackPlan> ReadCurseForgePlanAsync(ZipArchive archive, string key, string route, CancellationToken ct)
     {
         using var manifest = ReadManifest(archive, "manifest.json");
         var root = manifest.RootElement;
@@ -200,7 +200,7 @@ internal sealed class ModpackInstaller(StorageService storage, DownloadManager d
                 throw new InvalidDataException("CurseForge 清单中的依赖文件标识无效。");
             projectsByFile[fileId] = projectId;
         }
-        var resolved = await curseForge.GetPackFilesAsync(projectsByFile, key, ct);
+        var resolved = await curseForge.GetPackFilesAsync(projectsByFile, key, ct, route);
         var files = resolved.Select(item =>
         {
             if (!IsHttps(item.File.FileUrl)) throw new InvalidDataException($"CurseForge 下载地址无效：{item.File.File}");

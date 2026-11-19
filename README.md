@@ -22,10 +22,10 @@
 **DummyCrisp Minecraft Launcher (DCL)** is a lightweight Windows desktop launcher for *Minecraft: Java Edition* built with **.NET 8 (WinForms + Microsoft Edge WebView2)** and a custom HTML/CSS/JS interface.
 
 ### Key Capabilities
-- **Version & Instance Management**: Version isolation under `.minecraft/versions/<id>/`, external `.minecraft` / version folder zero-copy recognition & import, multi-loader support (Vanilla, Fabric, Forge, NeoForge, Quilt), and Java runtime discovery/installation.
-- **Resource Browser & Downloader**: Unified search and mod/modpack/resourcepack/shaderpack installation from **Modrinth** (and CurseForge when configured), dependency navigation, and multi-segment parallel download acceleration with SHA-1/SHA-512 verification.
+- **Version & Instance Management**: Version isolation under `.minecraft/versions/<id>/`, external `.minecraft` / version folder zero-copy recognition & import, multi-loader support (Vanilla, Fabric, Forge, NeoForge, Quilt), Java runtime discovery/installation, and per-instance JVM GC presets (`Gen-ZGC`, `G1GC`, `Shenandoah`) with cancelable game launch before the game window opens.
+- **Resource Browser & Downloader**: Unified search (`全部` / Modrinth / CurseForge) with clustered category, loader, dual-column MC version (`全部版本` + `热门版本`), resource pack resolution, and shader performance filters; automatic MCIM / BMCLAPI mirror routing; build-time optional CurseForge API key injection (`DCL_BUILD_CURSEFORGE_KEY`); embedded 33k+ Chinese/Pinyin project name index (`DCL_Backend/Data/mcmod-zh-cn.tsv.gz`); and progressive streaming pagination with SHA-1/SHA-512 verification.
 - **Smart Runtime Diagnostics**: Automatic per-version Java version matching, adaptive `-Xmx` RAM allocation based on system memory, loader overhead, and mod count, plus crash log analysis.
-- **Customizable UI**: 10 built-in color themes, responsive frameless windowing, custom scrollbars, and keyboard/controller-friendly ergonomics.
+- **Customizable UI**: 9 built-in color themes (defaulting to **Obsidian Black × Signal Yellow**, with no background pattern by default and an optional theme-adaptive SVG background overlay), launcher-themed custom HSV/HEX/RGB folder color picker, always-on-top window pin toggle, responsive frameless windowing, custom scrollbars, and keyboard/controller-friendly ergonomics.
 
 ## Authentication, Security & Privacy
 
@@ -40,7 +40,7 @@ DummyCrisp Minecraft Launcher uses **Microsoft OAuth 2.0 Public Client Device Co
 ```text
 DummyCrisp/
 ├── DCL_Backend/          # .NET 8 desktop host, WebView2 bridge, OAuth2, downloader, game launcher
-├── ui-prototype/         # Embedded WebView2 frontend (HTML/CSS/JS, themes, SVG icons, assets)
+├── ui-prototype/         # Embedded WebView2 frontend (HTML/CSS/JS, themes, SVG patterns/icons, assets)
 └── docs/                 # Project homepage (GitHub Pages), architecture notes, setup guides
 ```
 

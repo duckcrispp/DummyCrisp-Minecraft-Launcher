@@ -12,9 +12,12 @@ public sealed class DclConfig
     public string JvmPreset { get; set; } = "Gen-ZGC (Java 21)";
     public string CustomJvmArgs { get; set; } = "-XX:+UseZGC -XX:+ZGenerational -Dfile.encoding=UTF-8";
     public string ThemeId { get; set; } = "obsidian-yellow";
+    public string BgPatternId { get; set; } = "none";
+    public bool AlwaysOnTop { get; set; } = false;
     public string ActiveJavaId { get; set; } = "";
     public string MicrosoftClientId { get; set; } = "";
     public string CurseForgeApiKey { get; set; } = "";
+    public string CurseForgeApiRoute { get; set; } = "auto";
 }
 
 public sealed class InstanceMeta

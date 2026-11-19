@@ -134,6 +134,10 @@
     ],
     mirrorSource: optimalMirror.name,
     autoMirror: true,
+    curseForgeApiRoute: "auto",
+    themeId: "obsidian-yellow",
+    bgPatternId: "none",
+    alwaysOnTop: false,
     mirrors: mirrorNodes.map((n) => ({ ...n, score: scoreMirrorNode(n) })),
     downloadTasks: [
       {
@@ -524,31 +528,31 @@
         })
       ],
       mods: [
-        { id: "mr-sodium", cnName: "钠", enName: "Sodium", icon: "assets/mod-icons/sodium.webp", downloads: "148.2M", loaders: ["Fabric", "NeoForge"], mcVersions: "1.20.1 - 1.21.4", source: "Modrinth" },
-        { id: "mr-iris", cnName: "", enName: "Iris Shaders", icon: "assets/mod-icons/iris.webp", downloads: "79.4M", loaders: ["Fabric", "NeoForge"], mcVersions: "1.20.1 - 1.21.4", source: "Modrinth" },
-        { id: "mr-create", cnName: "机械动力", enName: "Create", icon: "assets/mod-icons/create.webp", downloads: "112.6M", loaders: ["Forge", "Fabric", "NeoForge"], mcVersions: "1.20.1 / 1.21.1", source: "CurseForge/Modrinth" },
-        { id: "cf-jei", cnName: "JEI 物品管理器", enName: "Just Enough Items (JEI)", icon: "assets/mod-icons/jei.webp", downloads: "294.0M", loaders: ["Forge", "Fabric", "NeoForge"], mcVersions: "1.12.2 - 1.21.4", source: "CurseForge" },
-        { id: "cf-ferrite", cnName: "铁氧体核心", enName: "FerriteCore", icon: "assets/mod-icons/ferrite-core.webp", downloads: "83.5M", loaders: ["Forge", "Fabric", "NeoForge"], mcVersions: "1.18.2 - 1.21.4", source: "CurseForge/Modrinth" },
-        { id: "mr-lithium", cnName: "锂", enName: "Lithium", icon: "assets/mod-icons/lithium.webp", downloads: "64.1M", loaders: ["Fabric", "NeoForge"], mcVersions: "1.20.1 - 1.21.4", source: "CurseForge/Modrinth" },
-        { id: "xaero-map", cnName: "Xaero 的小地图", enName: "Xaero's Minimap", icon: "assets/mod-icons/xaeros-minimap.webp", downloads: "105.8M", loaders: ["Forge", "Fabric", "NeoForge"], mcVersions: "1.12.2 - 1.21.4", source: "CurseForge/Modrinth" },
+        { id: "mr-sodium", cnName: "钠", enName: "Sodium", icon: "assets/mod-icons/sodium.webp", downloads: "14820.0 万次", loaders: ["Fabric", "NeoForge"], mcVersions: "1.20.1 - 1.21.4", source: "Modrinth" },
+        { id: "mr-iris", cnName: "", enName: "Iris Shaders", icon: "assets/mod-icons/iris.webp", downloads: "7940.0 万次", loaders: ["Fabric", "NeoForge"], mcVersions: "1.20.1 - 1.21.4", source: "Modrinth" },
+        { id: "mr-create", cnName: "机械动力", enName: "Create", icon: "assets/mod-icons/create.webp", downloads: "11260.0 万次", loaders: ["Forge", "Fabric", "NeoForge"], mcVersions: "1.20.1 / 1.21.1", source: "CurseForge/Modrinth" },
+        { id: "cf-jei", cnName: "JEI 物品管理器", enName: "Just Enough Items (JEI)", icon: "assets/mod-icons/jei.webp", downloads: "29400.0 万次", loaders: ["Forge", "Fabric", "NeoForge"], mcVersions: "1.12.2 - 1.21.4", source: "CurseForge" },
+        { id: "cf-ferrite", cnName: "铁氧体核心", enName: "FerriteCore", icon: "assets/mod-icons/ferrite-core.webp", downloads: "8350.0 万次", loaders: ["Forge", "Fabric", "NeoForge"], mcVersions: "1.18.2 - 1.21.4", source: "CurseForge/Modrinth" },
+        { id: "mr-lithium", cnName: "锂", enName: "Lithium", icon: "assets/mod-icons/lithium.webp", downloads: "6410.0 万次", loaders: ["Fabric", "NeoForge"], mcVersions: "1.20.1 - 1.21.4", source: "CurseForge/Modrinth" },
+        { id: "xaero-map", cnName: "Xaero 的小地图", enName: "Xaero's Minimap", icon: "assets/mod-icons/xaeros-minimap.webp", downloads: "10580.0 万次", loaders: ["Forge", "Fabric", "NeoForge"], mcVersions: "1.12.2 - 1.21.4", source: "CurseForge/Modrinth" },
         ...[
-          ["苹果皮", "AppleSkin", ["Forge", "Fabric", "NeoForge"], "CurseForge/Modrinth", "158.0M"],
-          ["玉", "Jade", ["Forge", "Fabric", "NeoForge"], "CurseForge/Modrinth", "92.3M"],
-          ["模组菜单", "Mod Menu", ["Fabric"], "Modrinth", "74.5M"],
-          ["", "Cloth Config API", ["Forge", "Fabric", "NeoForge"], "CurseForge/Modrinth", "121.4M"],
-          ["", "Entity Texture Features", ["Fabric", "NeoForge"], "Modrinth", "38.2M"],
-          ["", "Mouse Tweaks", ["Forge", "Fabric", "NeoForge"], "CurseForge", "146.9M"],
-          ["农夫乐事", "Farmer's Delight", ["Forge", "Fabric", "NeoForge"], "CurseForge/Modrinth", "89.1M"],
-          ["应用能源 2", "Applied Energistics 2", ["Forge", "NeoForge"], "CurseForge/Modrinth", "110.4M"],
-          ["沉浸工程", "Immersive Engineering", ["Forge", "NeoForge"], "CurseForge", "96.2M"],
-          ["自然指南针", "Nature's Compass", ["Forge", "Fabric", "NeoForge"], "CurseForge/Modrinth", "68.4M"],
-          ["传送石碑", "Waystones", ["Forge", "Fabric", "NeoForge"], "CurseForge/Modrinth", "104.7M"],
-          ["精妙背包", "Sophisticated Backpacks", ["Forge", "NeoForge"], "CurseForge/Modrinth", "84.3M"],
-          ["机械动力：齿轮与蒸汽", "Create: Steam 'n' Rails", ["Forge", "Fabric", "NeoForge"], "CurseForge/Modrinth", "36.1M"],
-          ["", "LambDynamicLights", ["Fabric", "NeoForge"], "Modrinth", "42.7M"],
-          ["", "ImmediatelyFast", ["Fabric", "NeoForge"], "Modrinth", "51.9M"],
-          ["现代修复", "ModernFix", ["Forge", "Fabric", "NeoForge"], "CurseForge/Modrinth", "61.8M"],
-          ["Xaero 的世界地图", "Xaero's World Map", ["Forge", "Fabric", "NeoForge"], "CurseForge/Modrinth", "87.6M"]
+          ["苹果皮", "AppleSkin", ["Forge", "Fabric", "NeoForge"], "CurseForge/Modrinth", "158.0"],
+          ["玉", "Jade", ["Forge", "Fabric", "NeoForge"], "CurseForge/Modrinth", "92.3"],
+          ["模组菜单", "Mod Menu", ["Fabric"], "Modrinth", "74.5"],
+          ["", "Cloth Config API", ["Forge", "Fabric", "NeoForge"], "CurseForge/Modrinth", "121.4"],
+          ["", "Entity Texture Features", ["Fabric", "NeoForge"], "Modrinth", "38.2"],
+          ["", "Mouse Tweaks", ["Forge", "Fabric", "NeoForge"], "CurseForge", "146.9"],
+          ["农夫乐事", "Farmer's Delight", ["Forge", "Fabric", "NeoForge"], "CurseForge/Modrinth", "89.1"],
+          ["应用能源 2", "Applied Energistics 2", ["Forge", "NeoForge"], "CurseForge/Modrinth", "110.4"],
+          ["沉浸工程", "Immersive Engineering", ["Forge", "NeoForge"], "CurseForge", "96.2"],
+          ["自然指南针", "Nature's Compass", ["Forge", "Fabric", "NeoForge"], "CurseForge/Modrinth", "68.4"],
+          ["传送石碑", "Waystones", ["Forge", "Fabric", "NeoForge"], "CurseForge/Modrinth", "104.7"],
+          ["精妙背包", "Sophisticated Backpacks", ["Forge", "NeoForge"], "CurseForge/Modrinth", "84.3"],
+          ["机械动力：齿轮与蒸汽", "Create: Steam 'n' Rails", ["Forge", "Fabric", "NeoForge"], "CurseForge/Modrinth", "36.1"],
+          ["", "LambDynamicLights", ["Fabric", "NeoForge"], "Modrinth", "42.7"],
+          ["", "ImmediatelyFast", ["Fabric", "NeoForge"], "Modrinth", "51.9"],
+          ["现代修复", "ModernFix", ["Forge", "Fabric", "NeoForge"], "CurseForge/Modrinth", "61.8"],
+          ["Xaero 的世界地图", "Xaero's World Map", ["Forge", "Fabric", "NeoForge"], "CurseForge/Modrinth", "87.6"]
         ].flatMap((base, bIdx) =>
           Array.from({ length: 6 }, (_, copy) => {
             const idx = bIdx * 6 + copy;
@@ -563,13 +567,13 @@
             ];
             const suffixCn = copy === 0 ? "" : ` Addon ${copy + 1}`;
             const suffixEn = copy === 0 ? "" : ` Addon ${copy + 1}`;
-            const dlNum = Math.max(1.2, parseFloat(base[4]) / (copy + 1)).toFixed(1);
+            const dlWan = (Math.max(1.2, parseFloat(base[4]) / (copy + 1)) * 100).toFixed(1);
             return {
               id: `gen-mod-${idx}`,
               cnName: copy === 0 && base[0] ? base[0] : "",
               enName: `${base[1]}${suffixEn}`,
               icon: icons[idx % icons.length],
-              downloads: `${dlNum}M`,
+              downloads: `${dlWan} 万次`,
               loaders: base[2],
               mcVersions: idx % 3 === 0 ? "1.20.1 - 1.21.4" : idx % 2 === 0 ? "1.21.1 / 1.21.4" : "1.20.1 / 1.21.1",
               source: base[3]
@@ -578,42 +582,42 @@
         )
       ],
       packs: [
-        { id: "pk-faithful", cnName: "", enName: "Faithful 32x", icon: "assets/mod-icons/faithful-32x.png", downloads: "24.8M", loaders: ["原版材质"], mcVersions: "1.20.1 - 1.21.4", source: "CurseForge/Modrinth" },
-        { id: "pk-fresh", cnName: "", enName: "Fresh Animations", icon: "assets/mod-icons/fresh-animations.webp", downloads: "19.3M", loaders: ["Fabric", "NeoForge"], mcVersions: "1.20.1 - 1.21.4", source: "Modrinth" },
+        { id: "pk-faithful", cnName: "", enName: "Faithful 32x", icon: "assets/mod-icons/faithful-32x.png", downloads: "2480.0 万次", loaders: ["原版材质"], mcVersions: "1.20.1 - 1.21.4", source: "CurseForge/Modrinth" },
+        { id: "pk-fresh", cnName: "", enName: "Fresh Animations", icon: "assets/mod-icons/fresh-animations.webp", downloads: "1930.0 万次", loaders: ["Fabric", "NeoForge"], mcVersions: "1.20.1 - 1.21.4", source: "Modrinth" },
         ...Array.from({ length: 58 }, (_, i) => ({
           id: `gen-pack-${i}`,
           cnName: "",
           enName: `Crisp Vanilla Pack ${i + 3}`,
           icon: i % 2 === 0 ? "assets/mod-icons/faithful-32x.png" : "assets/mod-icons/fresh-animations.webp",
-          downloads: `${(14.5 - i * 0.18).toFixed(1)}M`,
+          downloads: `${((14.5 - i * 0.18) * 100).toFixed(1)} 万次`,
           loaders: i % 2 === 0 ? ["原版材质"] : ["Forge", "Fabric"],
           mcVersions: "1.20.1 - 1.21.4",
           source: i % 3 === 0 ? "Modrinth" : i % 3 === 1 ? "CurseForge" : "CurseForge/Modrinth"
         }))
       ],
       shaders: [
-        { id: "sh-comp", cnName: "", enName: "Complementary Reimagined", icon: "assets/mod-icons/complementary-reimagined.webp", downloads: "31.2M", loaders: ["Iris", "OptiFine"], mcVersions: "1.20.1 - 1.21.4", source: "CurseForge/Modrinth" },
-        { id: "sh-iris", cnName: "", enName: "Photon Shader", icon: "assets/mod-icons/iris.webp", downloads: "7.1M", loaders: ["Iris"], mcVersions: "1.21.x", source: "Modrinth" },
+        { id: "sh-comp", cnName: "", enName: "Complementary Reimagined", icon: "assets/mod-icons/complementary-reimagined.webp", downloads: "3120.0 万次", loaders: ["Iris", "OptiFine"], mcVersions: "1.20.1 - 1.21.4", source: "CurseForge/Modrinth" },
+        { id: "sh-iris", cnName: "", enName: "Photon Shader", icon: "assets/mod-icons/iris.webp", downloads: "710.0 万次", loaders: ["Iris"], mcVersions: "1.21.x", source: "Modrinth" },
         ...Array.from({ length: 58 }, (_, i) => ({
           id: `gen-sh-${i}`,
           cnName: "",
           enName: `Atmospheric Shader ${i + 3}`,
           icon: i % 2 === 0 ? "assets/mod-icons/complementary-reimagined.webp" : "assets/mod-icons/iris.webp",
-          downloads: `${(12.2 - i * 0.15).toFixed(1)}M`,
+          downloads: `${((12.2 - i * 0.15) * 100).toFixed(1)} 万次`,
           loaders: i % 2 === 0 ? ["Iris", "OptiFine"] : ["Iris"],
           mcVersions: "1.20.1 - 1.21.4",
           source: i % 2 === 0 ? "CurseForge/Modrinth" : "Modrinth"
         }))
       ],
       modpacks: [
-        { id: "mp-fabulously", cnName: "", enName: "Fabulously Optimized", icon: "assets/mod-icons/fabulously-optimized.webp", downloads: "11.5M", loaders: ["Fabric"], mcVersions: "1.21.4", source: "Modrinth" },
-        { id: "mp-atm10", cnName: "", enName: "All the Mods 10", icon: "assets/mod-icons/create.webp", downloads: "6.9M", loaders: ["NeoForge"], mcVersions: "1.21.1", source: "CurseForge" },
+        { id: "mp-fabulously", cnName: "", enName: "Fabulously Optimized", icon: "assets/mod-icons/fabulously-optimized.webp", downloads: "1150.0 万次", loaders: ["Fabric"], mcVersions: "1.21.4", source: "Modrinth" },
+        { id: "mp-atm10", cnName: "", enName: "All the Mods 10", icon: "assets/mod-icons/create.webp", downloads: "690.0 万次", loaders: ["NeoForge"], mcVersions: "1.21.1", source: "CurseForge" },
         ...Array.from({ length: 58 }, (_, i) => ({
           id: `gen-mp-${i}`,
           cnName: "",
           enName: `Curated Modpack ${i + 3}`,
           icon: i % 2 === 0 ? "assets/mod-icons/fabulously-optimized.webp" : "assets/mod-icons/create.webp",
-          downloads: `${(9.4 - i * 0.11).toFixed(1)}M`,
+          downloads: `${((9.4 - i * 0.11) * 100).toFixed(1)} 万次`,
           loaders: i % 3 === 0 ? ["Forge", "NeoForge"] : i % 2 === 0 ? ["Fabric"] : ["Forge", "Fabric", "NeoForge"],
           mcVersions: i % 2 === 0 ? "1.21.1" : "1.20.1",
           source: i % 3 === 0 ? "Modrinth" : i % 3 === 1 ? "CurseForge" : "CurseForge/Modrinth"
@@ -743,6 +747,19 @@
           state.autoMirror = false;
         }
         return { mirror: state.mirrorSource, auto: state.autoMirror };
+      case "set_curseforge_route": {
+        const next = ["auto", "official", "mcim"].includes(payload?.route) ? payload.route : "auto";
+        state.curseForgeApiRoute = next;
+        return { curseForgeApiRoute: state.curseForgeApiRoute };
+      }
+      case "set_bg_pattern": {
+        state.bgPatternId = payload?.bgPatternId === "festive" ? "festive" : "none";
+        return { bgPatternId: state.bgPatternId };
+      }
+      case "window_set_topmost": {
+        state.alwaysOnTop = Boolean(payload?.pinned);
+        return { alwaysOnTop: state.alwaysOnTop };
+      }
       case "toggle_mod": {
         const mod = state.installedMods.find((m) => m.id === payload.id);
         if (mod) mod.enabled = !mod.enabled;
@@ -1211,8 +1228,7 @@
 
   function formatDownloadCountCn(n) {
     const num = Number(n) || 0;
-    if (num >= 100000000) return `${(num / 100000000).toFixed(1)} 亿次`;
-    if (num >= 10000) return `${Math.round(num / 10000)} 万次`;
+    if (num >= 10000) return `${(num / 10000).toFixed(1)} 万次`;
     return `${num} 次`;
   }
 
@@ -1422,11 +1438,13 @@
   const catalogPages = new Map();
   const pendingCatalogPages = new Map();
 
-  async function fetchLiveCatalogPage(catKey, query, loader, page, pageSize, source, explicitOffset, sortBy, mcVersion) {
+  async function fetchLiveCatalogPage(catKey, query, loader, page, pageSize, source, explicitOffset, sortBy, mcVersion, tag, subTag) {
     const offVal = typeof explicitOffset === "number" && explicitOffset >= 0 ? explicitOffset : -1;
     const sortVal = sortBy || "downloads";
     const mcVal = mcVersion || "all";
-    const key = JSON.stringify([catKey, query?.trim() || "", loader || "all", page, pageSize, source || "all", offVal, sortVal, mcVal]);
+    const tagVal = tag || "all";
+    const subTagVal = subTag || "all";
+    const key = JSON.stringify([catKey, query?.trim() || "", loader || "all", page, pageSize, source || "all", offVal, sortVal, mcVal, tagVal, subTagVal]);
     const cached = catalogPages.get(key);
     if (cached?.expires > Date.now()) {
       catalogPages.delete(key);
@@ -1436,7 +1454,7 @@
     }
     if (pendingCatalogPages.has(key)) return pendingCatalogPages.get(key);
 
-    const task = requestCatalogPage(catKey, query, loader, page, pageSize, source, offVal, sortVal, mcVal);
+    const task = requestCatalogPage(catKey, query, loader, page, pageSize, source, offVal, sortVal, mcVal, tagVal, subTagVal);
     pendingCatalogPages.set(key, task);
     try {
       const result = await task;
@@ -1456,20 +1474,22 @@
     while (onlineCatalogCache.size > 1000) onlineCatalogCache.delete(onlineCatalogCache.keys().next().value);
   }
 
-  async function requestCatalogPage(catKey, query, loader, page, pageSize, source, explicitOffset, sortBy, mcVersion) {
+  async function requestCatalogPage(catKey, query, loader, page, pageSize, source, explicitOffset, sortBy, mcVersion, tag, subTag) {
     const p = Math.max(1, Number(page) || 1);
     const size = Math.max(10, Number(pageSize) || 50);
     const offset = explicitOffset >= 0 ? explicitOffset : (p - 1) * size;
     const sortVal = sortBy || "downloads";
     const mcVal = !mcVersion || mcVersion === "all" ? "" : String(mcVersion).trim();
+    const tagVal = !tag || tag === "all" ? "" : String(tag).trim();
+    const subTagVal = !subTag || subTag === "all" ? "" : String(subTag).trim();
     const categoryLoader = catKey === "packs" || catKey === "shaders" ? "all" : loader;
     if (isWebView2) {
       const res = await invoke("search_catalog_page", {
-        catKey, query: query || "", loader: categoryLoader || "all", page: p, pageSize: size, offset, source, sortBy: sortVal, mcVersion: mcVal || "all"
+        catKey, query: query || "", loader: categoryLoader || "all", page: p, pageSize: size, offset, source, sortBy: sortVal, mcVersion: mcVal || "all", tag: tagVal || "all", subTag: subTagVal || "all"
       });
       return res;
     }
-    if (source === "CurseForge") throw new Error("CurseForge 需要在桌面启动器中配置 API Key。");
+    if (source === "CurseForge") return null;
     if (catKey === "versions") return null;
     try {
       const aliases = localizedNames(catKey, query);
@@ -1491,6 +1511,8 @@
       }
       const facets = [[`project_type:${mapCatKeyToModrinthType(catKey)}`]];
       if (categoryLoader && categoryLoader !== "all") facets.push([`categories:${categoryLoader.toLowerCase()}`]);
+      if (tagVal) facets.push([`categories:${tagVal.toLowerCase()}`]);
+      if (subTagVal && subTagVal.toLowerCase() !== tagVal.toLowerCase()) facets.push([`categories:${subTagVal.toLowerCase()}`]);
       if (mcVal) facets.push([`versions:${mcVal}`]);
       const index = sortVal === "newest" ? "newest" : "downloads";
       const url = `https://api.modrinth.com/v2/search?limit=${size}&offset=${offset}&index=${index}&query=${encodeURIComponent(query?.trim() || "")}&facets=${encodeURIComponent(JSON.stringify(facets))}`;
@@ -1810,9 +1832,9 @@
         const cleanEn = String(raw.enName || "").replace(/\s+Addon\s+\d+$/i, "").trim() || raw.cnName;
         const ldLow = ld.toLowerCase().replace(/[^a-z0-9]/g, "");
         const mockDeps = raw.id === "mr-iris"
-          ? [{ id: "mr-sodium", projectId: "mr-sodium", catKey: "mods", cnName: "钠", enName: "Sodium", icon: "assets/mod-icons/sodium.webp", summary: "高性能渲染引擎前置支持库", downloads: "148.2M", source: "Modrinth", depType: "required", label: "前置支持库" }]
+          ? [{ id: "mr-sodium", projectId: "mr-sodium", catKey: "mods", cnName: "钠", enName: "Sodium", icon: "assets/mod-icons/sodium.webp", summary: "高性能渲染引擎前置支持库", downloads: "14820.0 万次", source: "Modrinth", depType: "required", label: "前置支持库" }]
           : raw.id === "mr-create"
-            ? [{ id: "cf-jei", projectId: "cf-jei", catKey: "mods", cnName: "JEI 物品管理器", enName: "Just Enough Items (JEI)", icon: "assets/mod-icons/jei.webp", summary: "配方与合成查询推荐辅助库", downloads: "294.0M", source: "CurseForge", depType: "optional", label: "可选前置" }]
+            ? [{ id: "cf-jei", projectId: "cf-jei", catKey: "mods", cnName: "JEI 物品管理器", enName: "Just Enough Items (JEI)", icon: "assets/mod-icons/jei.webp", summary: "配方与合成查询推荐辅助库", downloads: "29400.0 万次", source: "CurseForge", depType: "optional", label: "可选前置" }]
             : [];
         return {
           mcVersion: mcVer,

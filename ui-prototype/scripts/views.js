@@ -912,21 +912,23 @@
                 ).join("")}
               </div>
             </div>
-            <label class="emu-btn emu-btn--sm cobra-custom-btn ${isCustomColor ? "is-active" : ""}" title="自定义文件夹颜色" aria-label="自定义文件夹颜色">
-              <input
-                class="color-custom-input"
-                id="custom-folder-color-input"
-                type="color"
-                value="${esc(active.customFolderHex || "#e67e22")}"
-                aria-label="自定义文件夹颜色"
-              />
+            <button
+              class="emu-btn emu-btn--sm cobra-custom-btn ${isCustomColor ? "has-custom-color" : ""}"
+              id="btn-open-custom-color"
+              data-custom-hex="${esc(active.customFolderHex || "#e67e22")}"
+              data-tooltip="自定义文件夹颜色"
+              aria-label="自定义文件夹颜色"
+              aria-haspopup="dialog"
+              aria-expanded="false"
+              type="button"
+            >
               <span class="filled" aria-hidden="true"></span>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
                 <line x1="5" y1="7" x2="19" y2="7"/>
                 <line x1="5" y1="12" x2="19" y2="12"/>
                 <line x1="5" y1="17" x2="19" y2="17"/>
               </svg>
-            </label>
+            </button>
           </div>`;
           })()}
         </div>
@@ -983,6 +985,11 @@
 
             <div class="quick-setting-block" style="margin-bottom:0;">
               <label class="quick-field-label" for="quick-jvm-args">JVM 启动参数</label>
+              <div class="quick-jvm-presets" style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+                <button class="chip-btn page-pill ${(effectiveJvmArgs || "").includes("UseZGC") ? "is-active" : ""}" data-quick-jvm-preset="-XX:+UseZGC -XX:+ZGenerational -Dfile.encoding=UTF-8" type="button">Gen-ZGC</button>
+                <button class="chip-btn page-pill ${(effectiveJvmArgs || "").includes("UseG1GC") ? "is-active" : ""}" data-quick-jvm-preset="-XX:+UseG1GC -XX:MaxGCPauseMillis=30 -Dfile.encoding=UTF-8" type="button">G1GC</button>
+                <button class="chip-btn page-pill ${(effectiveJvmArgs || "").includes("UseShenandoahGC") ? "is-active" : ""}" data-quick-jvm-preset="-XX:+UseShenandoahGC -Dfile.encoding=UTF-8" type="button">Shenandoah</button>
+              </div>
               <div class="jvm-textarea-row">
                 <textarea class="quick-jvm-textarea" id="quick-jvm-args" placeholder="点击输入文本……" rows="2">${esc(effectiveJvmArgs)}</textarea>
               </div>
@@ -1346,7 +1353,7 @@
                 return `
             <div class="launch-row">
               <button class="btn-launch ${hasVersion ? "" : "is-disabled"} ${isPreSpawnPending ? "is-hollow" : ""}" id="btn-launch-game" ${hasVersion ? "" : 'disabled aria-disabled="true"'} ${isPreSpawnPending ? 'data-cancel-pending-launch="true"' : ""} type="button">
-                <span>${!hasVersion ? "暂无可启动版本" : isPreSpawnPending ? "取消启动" : "启动游戏"}</span>
+                <span>${!hasVersion ? "暂无可启动版本" : isPreSpawnPending ? "取消" : "启动游戏"}</span>
                 <span>${!hasVersion ? "→" : isPreSpawnPending ? "×" : "→"}</span>
               </button>`;
               })()
@@ -1433,6 +1440,31 @@
               </ul>
 
               <div class="emu-dock-caption" id="quick-dock-caption">${effectiveQuickPanel ? `<strong>${quickMetaMap[effectiveQuickPanel]}</strong>` : ""}</div>
+
+              ${(() => {
+                const bgNames = {
+                  none: "无",
+                  festive: "冬日礼赞"
+                };
+                const bgId = state.bgPatternId === "festive" ? "festive" : "none";
+                const bgLabel = bgNames[bgId];
+                return `
+              <button
+                class="bg-pattern-btn emu-btn--bg-pattern ${bgId !== "none" ? "is-pattern-on" : ""}"
+                id="btn-cycle-bg-pattern"
+                data-bg-pattern="${esc(bgId)}"
+                aria-label="切换版本背景（当前：${esc(bgLabel)}）"
+                type="button"
+              >
+                <span class="bg-pattern-ring" aria-hidden="true"></span>
+                <svg class="bg-pattern-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="3" y="3" width="18" height="18" rx="3"/>
+                  <circle cx="8.5" cy="8.5" r="1.5"/>
+                  <path d="M21 15l-4.5-4.5L9 18"/>
+                  <path d="M14 18l-2.5-2.5L7 20"/>
+                </svg>
+              </button>`;
+              })()}
             </div>
 
             <div class="quick-panel-slot" id="quick-panel-slot">
@@ -1514,8 +1546,8 @@
   function renderPaginationBar(page, totalPages, totalItems) {
     if (totalItems <= 0) return "";
     const pages = [];
-    const start = Math.max(1, page - 2);
-    const end = Math.min(totalPages, page + 2);
+    const start = Math.max(1, page - 1);
+    const end = Math.min(totalPages, page + 1);
     if (start > 1) pages.push(1);
     if (start > 2) pages.push("...");
     for (let p = start; p <= end; p++) pages.push(p);
@@ -1581,22 +1613,248 @@
     return [...map.values()];
   }
 
-  function renderMcVersionTrayListHtml(state, mcVersionFilter) {
+  const HOT_MC_VERSIONS = [
+    "26.3", "26.2", "26.1",
+    "1.21.11", "1.21.8", "1.21.4", "1.21.1",
+    "1.20.1", "1.19.2", "1.18.2", "1.16.5",
+    "1.15.2", "1.14.4", "1.13.2", "1.12.2",
+    "1.11.2", "1.10.2", "1.9.2", "1.8.9", "1.7.10"
+  ];
+
+  const RESOURCE_CATEGORY_TREES = {
+    mods: [
+      { id: "all", label: "全部" },
+      { id: "worldgen", label: "世界元素" },
+      { id: "biomes", label: "生物群系", sub: true },
+      { id: "dimensions", label: "维度", sub: true },
+      { id: "ores", label: "矿物与资源", sub: true },
+      { id: "structures", label: "天然结构", sub: true },
+      { id: "mobs", label: "生物", sub: true },
+      { id: "technology", label: "科技" },
+      { id: "logistics", label: "管道与物流", sub: true },
+      { id: "automation", label: "自动化", sub: true },
+      { id: "energy", label: "能源", sub: true },
+      { id: "redstone", label: "红石", sub: true },
+      { id: "processing", label: "资源处理", sub: true },
+      { id: "storage", label: "仓储", sub: true },
+      { id: "magic", label: "魔法" },
+      { id: "adventure", label: "冒险与探索" },
+      { id: "equipment", label: "装备与战斗", sub: true },
+      { id: "transportation", label: "交通与运输", sub: true },
+      { id: "minigame", label: "小游戏", sub: true },
+      { id: "horror", label: "恐怖", sub: true },
+      { id: "food", label: "食物与烹饪" },
+      { id: "farming", label: "农业", sub: true },
+      { id: "decoration", label: "装饰与建筑" },
+      { id: "optimization", label: "性能优化" },
+      { id: "utility", label: "实用与界面" },
+      { id: "map", label: "地图与信息", sub: true },
+      { id: "game-mechanics", label: "游戏机制", sub: true },
+      { id: "bugfix", label: "漏洞修复", sub: true },
+      { id: "social", label: "多人与社交", sub: true },
+      { id: "management", label: "服务器管理", sub: true },
+      { id: "economy", label: "经济", sub: true },
+      { id: "library", label: "支持库 / API" },
+      { id: "addons", label: "附属模组" }
+    ],
+    modpacks: [
+      { id: "all", label: "全部" },
+      { id: "multiplayer", label: "多人" },
+      { id: "optimization", label: "性能优化" },
+      { id: "lightweight", label: "轻量" },
+      { id: "challenging", label: "硬核" },
+      { id: "combat", label: "战斗" },
+      { id: "quests", label: "任务" },
+      { id: "technology", label: "科技" },
+      { id: "magic", label: "魔法" },
+      { id: "adventure", label: "冒险" },
+      { id: "kitchen-sink", label: "水槽包" },
+      { id: "exploration", label: "探索" },
+      { id: "minigame", label: "小游戏" },
+      { id: "sci-fi", label: "科幻" },
+      { id: "skyblock", label: "空岛" },
+      { id: "vanilla-plus", label: "原版改良" },
+      { id: "horror", label: "恐怖" }
+    ],
+    packs: [
+      { id: "all", label: "全部" },
+      { groupHeader: true, label: "风格" },
+      { id: "vanilla-like", label: "原版风", sub: true },
+      { id: "realistic", label: "写实风", sub: true },
+      { id: "modern", label: "现代风", sub: true },
+      { id: "medieval", label: "中世纪", sub: true },
+      { id: "steampunk", label: "蒸汽朋克", sub: true },
+      { id: "themed", label: "主题化", sub: true },
+      { id: "simplistic", label: "简洁", sub: true },
+      { id: "decoration", label: "装饰", sub: true },
+      { id: "combat", label: "战斗", sub: true },
+      { id: "utility", label: "实用", sub: true },
+      { id: "tweaks", label: "改良", sub: true },
+      { id: "cursed", label: "鬼畜", sub: true },
+      { id: "modded", label: "模组支持", sub: true },
+      { groupHeader: true, label: "特性" },
+      { id: "animated", label: "动态材质", sub: true },
+      { id: "gui", label: "界面 GUI", sub: true },
+      { id: "audio", label: "音效", sub: true },
+      { id: "fonts", label: "字体", sub: true },
+      { id: "models", label: "3D 模型", sub: true },
+      { id: "core-shaders", label: "核心着色器", sub: true },
+      { groupHeader: true, label: "分辨率" },
+      { id: "8x-", label: "8x 及以下", sub: true },
+      { id: "16x", label: "16x", sub: true },
+      { id: "32x", label: "32x", sub: true },
+      { id: "64x", label: "64x", sub: true },
+      { id: "128x", label: "128x", sub: true },
+      { id: "256x", label: "256x", sub: true },
+      { id: "512x+", label: "512x 及以上", sub: true }
+    ],
+    shaders: [
+      { id: "all", label: "全部" },
+      { groupHeader: true, label: "风格" },
+      { id: "vanilla-like", label: "原版风", sub: true },
+      { id: "fantasy", label: "幻想风", sub: true },
+      { id: "realistic", label: "写实风", sub: true },
+      { id: "semi-realistic", label: "半写实风", sub: true },
+      { id: "cartoon", label: "卡通风", sub: true },
+      { id: "cursed", label: "鬼畜 / 猎奇", sub: true },
+      { groupHeader: true, label: "特性" },
+      { id: "colored-lighting", label: "彩色光照", sub: true },
+      { id: "path-tracing", label: "路径追踪", sub: true },
+      { id: "pbr", label: "PBR", sub: true },
+      { id: "reflections", label: "反射", sub: true },
+      { id: "atmosphere", label: "大气效果", sub: true },
+      { id: "bloom", label: "泛光", sub: true },
+      { id: "foliage", label: "植被晃动", sub: true },
+      { id: "shadows", label: "动态阴影", sub: true },
+      { groupHeader: true, label: "性能负荷" },
+      { id: "potato", label: "极低", sub: true },
+      { id: "low", label: "低", sub: true },
+      { id: "medium", label: "中", sub: true },
+      { id: "high", label: "高", sub: true },
+      { id: "screenshot", label: "截图级", sub: true }
+    ]
+  };
+
+  const RESOURCE_CATEGORY_SECONDARY = {
+    packs: {
+      title: "分辨率",
+      items: [
+        { id: "all", label: "全部" },
+        { id: "8x-", label: "8x 及以下" },
+        { id: "16x", label: "16x" },
+        { id: "32x", label: "32x" },
+        { id: "64x", label: "64x" },
+        { id: "128x", label: "128x" },
+        { id: "256x", label: "256x" },
+        { id: "512x+", label: "512x 及以上" }
+      ]
+    },
+    shaders: {
+      title: "性能负荷",
+      items: [
+        { id: "all", label: "全部" },
+        { id: "potato", label: "极低" },
+        { id: "low", label: "低" },
+        { id: "medium", label: "中" },
+        { id: "high", label: "高" },
+        { id: "screenshot", label: "截图级" }
+      ]
+    }
+  };
+
+  function subKeyToResourceCat(subKey) {
+    if (subKey === "download-packs") return "packs";
+    if (subKey === "download-shaders") return "shaders";
+    if (subKey === "download-modpacks") return "modpacks";
+    return "mods";
+  }
+
+  function getResourceCategoryLabel(catKey, tagId, subTagId) {
+    const id = tagId || "all";
+    const subId = subTagId || "all";
+    const list = RESOURCE_CATEGORY_TREES[catKey] || RESOURCE_CATEGORY_TREES.mods;
+    const hit = id !== "all" ? list.find((item) => item.id === id) : null;
+    const sec = RESOURCE_CATEGORY_SECONDARY[catKey];
+    const secHit = sec && subId !== "all" ? sec.items.find((item) => item.id === subId) : null;
+    if (hit && secHit) return `${hit.label} · ${secHit.label}`;
+    if (hit) return hit.label;
+    if (secHit) return secHit.label;
+    return "全部";
+  }
+
+  function renderCategoryOptionListHtml(items, activeTag, attrName = "data-filter-cat") {
+    const cur = activeTag || "all";
+    return items
+      .map((item) => {
+        if (item.groupHeader) {
+          return `<div class="cat-tray-group-head" role="presentation">${esc(item.label)}</div>`;
+        }
+        const isActive = cur === item.id;
+        return `<button class="mirror-tray-item ${isActive ? "is-active" : ""}" ${attrName}="${esc(item.id)}" aria-selected="${isActive}" type="button" role="option"><span>${esc(item.label)}</span></button>`;
+      })
+      .join("");
+  }
+
+  function renderResourceCategoryTrayHtml(catKey, activeTag, activeSubTag) {
+    const rawList = RESOURCE_CATEGORY_TREES[catKey] || RESOURCE_CATEGORY_TREES.mods;
+    const secondary = RESOURCE_CATEGORY_SECONDARY[catKey];
+    if (!secondary) {
+      return `<div class="mcver-tray-list" id="cat-tray-list">${renderCategoryOptionListHtml(rawList, activeTag, "data-filter-cat")}</div>`;
+    }
+    const secIds = new Set(secondary.items.filter((x) => x.id !== "all").map((x) => x.id));
+    const primaryList = rawList.filter((item) => !(item.groupHeader && item.label === secondary.title) && !secIds.has(item.id));
+    return `
+      <div class="mcver-dual-grid">
+        <div class="mcver-dual-col">
+          <div class="mcver-col-head">类型</div>
+          <div class="mcver-tray-list" id="cat-tray-list">
+            ${renderCategoryOptionListHtml(primaryList, activeTag, "data-filter-cat")}
+          </div>
+        </div>
+        <div class="mcver-dual-col mcver-dual-col--hot">
+          <div class="mcver-col-head">${esc(secondary.title)}</div>
+          <div class="mcver-tray-list" id="cat-tray-secondary-list">
+            ${renderCategoryOptionListHtml(secondary.items, activeSubTag, "data-filter-subcat")}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function renderHotMcVersionListHtml(mcVersionFilter) {
+    const active = mcVersionFilter || "all";
+    return HOT_MC_VERSIONS.map(
+      (v) => `
+        <button class="mirror-tray-item ${active === v ? "is-active" : ""}" data-filter-mc="${esc(v)}" aria-selected="${active === v}" type="button" role="option">
+          <span>${esc(v)}</span>
+        </button>`
+    ).join("");
+  }
+
+  function renderMcVersionTrayListHtml(state, mcVersionFilter, searchText = "") {
     const allMcVersions = getAllFilterMcVersions(state);
     const active = mcVersionFilter || "all";
-    return `
-                  <button class="mirror-tray-item ${active === "all" ? "is-active" : ""}" data-filter-mc="all" aria-selected="${active === "all"}" type="button" role="option">
-                    <span>全部版本</span>
-                  </button>
-                  ${allMcVersions
-                    .map(
-                      (v) => `
-                    <button class="mirror-tray-item ${active === v.id ? "is-active" : ""}" data-filter-mc="${esc(v.id)}" aria-selected="${active === v.id}" type="button" role="option">
-                      <span>${esc(v.id)}</span>
-                      <span class="mirror-ping">${esc(v.badge)}</span>
-                    </button>`
-                    )
-                    .join("")}`;
+    const q = String(searchText || "").trim();
+    const qLower = q.toLowerCase();
+    const filtered = qLower
+      ? allMcVersions.filter((v) => v.id.toLowerCase().includes(qLower))
+      : allMcVersions;
+    const exactHit = qLower && allMcVersions.some((v) => v.id.toLowerCase() === qLower);
+    const customRow = q && !exactHit
+      ? `<button class="mirror-tray-item ${active === q ? "is-active" : ""}" data-filter-mc="${esc(q)}" aria-selected="${active === q}" type="button" role="option"><span>使用「${esc(q)}」</span><span class="mirror-ping">自定义</span></button>`
+      : "";
+    const allRow = !q
+      ? `<button class="mirror-tray-item ${active === "all" ? "is-active" : ""}" data-filter-mc="all" aria-selected="${active === "all"}" type="button" role="option"><span>全部版本</span></button>`
+      : "";
+    const rows = filtered
+      .map(
+        (v) => `
+          <button class="mirror-tray-item ${active === v.id ? "is-active" : ""}" data-filter-mc="${esc(v.id)}" aria-selected="${active === v.id}" type="button" role="option">
+            <span>${esc(v.id)}</span>
+            <span class="mirror-ping">${esc(v.badge)}</span>
+          </button>`
+      )
+      .join("");
+    return `${allRow}${customRow}${rows || (customRow ? "" : '<div class="cat-tray-group-head">无匹配版本</div>')}`;
   }
 
   function renderFilterPopoverHtml(subKey, viewOpts, state) {
@@ -1605,12 +1863,17 @@
     if (!filterOpen) return "";
     const isVersions = subKey === "download-versions";
     const hideLoaderFilter = subKey === "download-packs" || subKey === "download-shaders";
+    const resCatKey = subKeyToResourceCat(subKey);
     const loaderFilter = opts.loaderFilter || "all";
     const sourceFilter = opts.sourceFilter || "all";
     const sortFilter = opts.sortFilter || "downloads";
+    const categoryFilter = opts.categoryFilter || "all";
+    const subCategoryFilter = opts.subCategoryFilter || "all";
+    const categoryLabel = getResourceCategoryLabel(resCatKey, categoryFilter, subCategoryFilter);
     const mcVersionFilter = opts.mcVersionFilter || "all";
     const mcLabel = mcVersionFilter === "all" ? "全部版本" : mcVersionFilter;
     const cubeSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l8.5 4.9v10.2L12 22l-8.5-4.9V6.9L12 2z"/><path d="M12 22V12m0 0l8.5-5.1M12 12L3.5 6.9"/></svg>`;
+    const tagSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>`;
     const caretSvg = `<svg class="mirror-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>`;
 
     return `
@@ -1621,12 +1884,14 @@
               ? `
           <div class="filter-group">
             <span class="filter-group-label">加载器</span>
-            ${["all", "Forge", "Fabric", "NeoForge"]
-              .map(
-                (ld) =>
-                  `<button class="chip-btn page-pill ${loaderFilter === ld ? "is-active" : ""}" data-filter-loader="${ld}" aria-pressed="${loaderFilter === ld}" type="button">${ld === "all" ? "全部" : ld}</button>`
-              )
-              .join("")}
+            <div class="filter-group-options">
+              ${["all", "Forge", "Fabric", "NeoForge"]
+                .map(
+                  (ld) =>
+                    `<button class="chip-btn page-pill ${loaderFilter === ld ? "is-active" : ""}" data-filter-loader="${ld}" aria-pressed="${loaderFilter === ld}" type="button">${ld === "all" ? "全部" : ld}</button>`
+                )
+                .join("")}
+            </div>
           </div>`
               : ""
           }
@@ -1635,41 +1900,78 @@
               ? `
           <div class="filter-group">
             <span class="filter-group-label">来源</span>
-            ${["all", "CurseForge"]
-              .map(
-                (sr) =>
-                  `<button class="chip-btn page-pill ${sourceFilter === sr ? "is-active" : ""}" data-filter-source="${sr}" aria-pressed="${sourceFilter === sr}" type="button">${sr === "all" ? "Modrinth" : sr}</button>`
-              )
-              .join("")}
+            <div class="filter-group-options">
+              ${["all", "Modrinth", "CurseForge"]
+                .map(
+                  (sr) =>
+                    `<button class="chip-btn page-pill ${sourceFilter === sr ? "is-active" : ""}" data-filter-source="${sr}" aria-pressed="${sourceFilter === sr}" type="button">${sr === "all" ? "全部" : sr}</button>`
+                )
+                .join("")}
+            </div>
           </div>
           <div class="filter-group">
             <span class="filter-group-label">排序</span>
-            ${[
-              { id: "downloads", label: "最多下载" },
-              { id: "newest", label: "最新发布" }
-            ]
-              .map(
-                (s) =>
-                  `<button class="chip-btn page-pill ${sortFilter === s.id ? "is-active" : ""}" data-filter-sort="${s.id}" aria-pressed="${sortFilter === s.id}" type="button">${s.label}</button>`
-              )
-              .join("")}
+            <div class="filter-group-options">
+              ${[
+                { id: "downloads", label: "最多下载" },
+                { id: "newest", label: "最新发布" }
+              ]
+                .map(
+                  (s) =>
+                    `<button class="chip-btn page-pill ${sortFilter === s.id ? "is-active" : ""}" data-filter-sort="${s.id}" aria-pressed="${sortFilter === s.id}" type="button">${s.label}</button>`
+                )
+                .join("")}
+            </div>
           </div>
-          <div class="filter-group filter-group--versions">
-            <span class="filter-group-label">Minecraft 版本</span>
-            <div class="mirror-starfish-wrap mcver-starfish-wrap" id="mcver-starfish-wrap" aria-label="Minecraft 版本筛选">
-              <button class="mirror-starfish-trigger mcver-starfish-trigger" id="mcver-starfish-trigger" type="button" aria-expanded="false" aria-haspopup="listbox" aria-label="选择 Minecraft 版本（${esc(mcLabel)}）">
-                ${cubeSvg}
-                <span class="mirror-trigger-label">
-                  <span class="mirror-trigger-name">${esc(mcLabel)}</span>
-                </span>
-                ${caretSvg}
-              </button>
-              <div class="mirror-tray mcver-tray" id="mcver-tray" role="listbox" aria-label="全部 Minecraft 版本">
-                <div class="mirror-tray-bridge" aria-hidden="true"></div>
-                <div class="mcver-tray-list" id="mcver-tray-list" data-lazy-mcver="true">
-                  <button class="mirror-tray-item ${mcVersionFilter === "all" ? "is-active" : ""}" data-filter-mc="all" aria-selected="${mcVersionFilter === "all"}" type="button" role="option">
-                    <span>全部版本</span>
+          <div class="filter-group filter-group--category">
+            <span class="filter-group-label">类型</span>
+            <div class="filter-group-options filter-group-options--dual-triggers">
+              <div class="mirror-starfish-wrap mcver-starfish-wrap cat-starfish-wrap" id="cat-starfish-wrap" aria-label="资源类型筛选">
+                <button class="mirror-starfish-trigger mcver-starfish-trigger" id="cat-starfish-trigger" type="button" aria-expanded="false" aria-haspopup="listbox" aria-label="选择资源类型（${esc(categoryLabel)}）">
+                  ${tagSvg}
+                  <span class="mirror-trigger-label">
+                    <span class="mirror-trigger-name">${esc(categoryLabel)}</span>
+                  </span>
+                  ${caretSvg}
+                </button>
+                <div class="mirror-tray mcver-tray cat-tray ${RESOURCE_CATEGORY_SECONDARY[resCatKey] ? "mcver-tray--dual cat-tray--dual" : ""}" id="cat-tray" role="listbox" aria-label="资源类型列表">
+                  <div class="mirror-tray-bridge" aria-hidden="true"></div>
+                  ${renderResourceCategoryTrayHtml(resCatKey, categoryFilter, subCategoryFilter)}
+                </div>
+              </div>
+              <div class="filter-inline-pair">
+                <span class="filter-group-label">Minecraft 版本</span>
+                <div class="mirror-starfish-wrap mcver-starfish-wrap" id="mcver-starfish-wrap" aria-label="Minecraft 版本筛选">
+                  <button class="mirror-starfish-trigger mcver-starfish-trigger" id="mcver-starfish-trigger" type="button" aria-expanded="false" aria-haspopup="listbox" aria-label="选择 Minecraft 版本（${esc(mcLabel)}）">
+                    ${cubeSvg}
+                    <span class="mirror-trigger-label">
+                      <span class="mirror-trigger-name">${esc(mcLabel)}</span>
+                    </span>
+                    ${caretSvg}
                   </button>
+                  <div class="mirror-tray mcver-tray mcver-tray--dual" id="mcver-tray" role="listbox" aria-label="Minecraft 版本列表">
+                    <div class="mirror-tray-bridge" aria-hidden="true"></div>
+                    <div class="mcver-dual-grid">
+                      <div class="mcver-dual-col">
+                        <div class="mcver-col-head">全部版本</div>
+                        <div class="warm-search-box warm-search-box--compact">
+                          <input class="warm-search-input" id="mcver-search-input" type="text" required value="" autocomplete="off" spellcheck="false" aria-label="输入 Minecraft 版本号" />
+                          <label class="warm-search-label" for="mcver-search-input">${renderWavyChars("点击输入文本……")}</label>
+                        </div>
+                        <div class="mcver-tray-list" id="mcver-tray-list" data-lazy-mcver="true">
+                          <button class="mirror-tray-item ${mcVersionFilter === "all" ? "is-active" : ""}" data-filter-mc="all" aria-selected="${mcVersionFilter === "all"}" type="button" role="option">
+                            <span>全部版本</span>
+                          </button>
+                        </div>
+                      </div>
+                      <div class="mcver-dual-col mcver-dual-col--hot">
+                        <div class="mcver-col-head">热门版本</div>
+                        <div class="mcver-tray-list" id="mcver-hot-list">
+                          ${renderHotMcVersionListHtml(mcVersionFilter)}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1932,6 +2234,8 @@
     const hasActiveFilter = (opts.loaderFilter || "all") !== "all" ||
       (opts.sourceFilter || "all") !== "all" ||
       (opts.sortFilter || "downloads") !== "downloads" ||
+      (opts.categoryFilter || "all") !== "all" ||
+      (opts.subCategoryFilter || "all") !== "all" ||
       (opts.mcVersionFilter || "all") !== "all";
     return `
       <div class="breadcrumb-bar">
@@ -1950,7 +2254,7 @@
         ${renderMirrorStarfishControl(state)}
       </div>
 
-      <div class="filter-popover-slot" id="filter-popover-slot">
+      <div class="filter-popover-slot ${opts.filterOpen ? "is-open is-settled" : ""}" id="filter-popover-slot">
         ${renderFilterPopoverHtml(subKey, opts, state)}
       </div>
 
@@ -2596,6 +2900,7 @@
     filterGameVersions,
     renderGameVersionGroupPage,
     renderMcVersionTrayListHtml,
+    getResourceCategoryLabel,
     renderFilterPopoverHtml,
     renderPauseResumeBtn,
     resolveFolderColorVars,

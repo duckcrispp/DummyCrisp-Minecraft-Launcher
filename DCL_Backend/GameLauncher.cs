@@ -304,7 +304,7 @@ public sealed class GameLauncher
             return (false, "无法启动 Java 进程", -1, new());
         }
 
-        onProgress?.Invoke(100);
+        onProgress?.Invoke(90);
         var logTail = new List<string>();
         void RecordOutput(string? line, string stream)
         {
@@ -323,7 +323,52 @@ public sealed class GameLauncher
         proc.BeginOutputReadLine();
         proc.BeginErrorReadLine();
 
+        // 持续监测直到 Java 游戏界面正式被唤醒（MainWindowHandle != 0）；在此之前点击「取消」可直接终止 Java 进程
+        bool cancelledBeforeWindow = false;
+        using var windowWatchCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var windowWatchTask = Task.Run(async () =>
+        {
+            try
+            {
+                while (!windowWatchCts.Token.IsCancellationRequested)
+                {
+                    if (preSpawnCt.IsCancellationRequested)
+                    {
+                        cancelledBeforeWindow = true;
+                        _storage.Log($"用户取消启动 [{inst.Id}]，正在终止尚未唤醒界面的 Java 进程 (PID {proc.Id})");
+                        try { if (!proc.HasExited) proc.Kill(entireProcessTree: true); } catch { }
+                        return;
+                    }
+                    try
+                    {
+                        if (proc.HasExited) return;
+                        proc.Refresh();
+                        if (proc.MainWindowHandle != IntPtr.Zero)
+                        {
+                            _storage.Log($"游戏窗口已唤醒 [{inst.Id}] (PID {proc.Id}, HWND 0x{proc.MainWindowHandle.ToInt64():X})");
+                            onProgress?.Invoke(100);
+                            return;
+                        }
+                    }
+                    catch
+                    {
+                        return;
+                    }
+                    await Task.Delay(180, windowWatchCts.Token);
+                }
+            }
+            catch (OperationCanceledException) { }
+        });
+
         await proc.WaitForExitAsync(ct);
+        windowWatchCts.Cancel();
+        try { await windowWatchTask; } catch { }
+
+        if (cancelledBeforeWindow || preSpawnCt.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(preSpawnCt);
+        }
+
         _storage.Log($"游戏 [{inst.Id}] 已退出，退出码 {proc.ExitCode}");
         if (proc.ExitCode == 0)
         {

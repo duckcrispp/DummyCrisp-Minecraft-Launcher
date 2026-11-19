@@ -32,6 +32,7 @@ public sealed class InstanceMeta
     public string JvmArgs { get; set; } = "";
     public string IconId { get; set; } = "grass";
     public string? CustomIcon { get; set; }
+    public string? PackIcon { get; set; }
     public int RequiredJavaMajor { get; set; }
     public bool IsModpack { get; set; }
     public string FolderColor { get; set; } = "amber";

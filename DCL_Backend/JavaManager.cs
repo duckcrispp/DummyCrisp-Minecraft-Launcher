@@ -165,17 +165,22 @@ public sealed class JavaManager
             });
         ct.ThrowIfCancellationRequested();
 
+        await SaveDiscoveryAsync(found.Keys, ct);
+        _storage.Log($"本机 Java 扫描完成 · 检查 {roots.Count} 个目录根，发现 {found.Count} 个运行时入口");
+    }
+
+    private async Task SaveDiscoveryAsync(IEnumerable<string> bins, CancellationToken ct)
+    {
         string tempPath = DiscoveryCachePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            await File.WriteAllTextAsync(tempPath, JsonSerializer.Serialize(found.Keys.Order(StringComparer.OrdinalIgnoreCase)), ct);
+            await File.WriteAllTextAsync(tempPath, JsonSerializer.Serialize(bins.Order(StringComparer.OrdinalIgnoreCase)), ct);
             File.Move(tempPath, DiscoveryCachePath, overwrite: true);
         }
         finally
         {
             if (File.Exists(tempPath)) File.Delete(tempPath);
         }
-        _storage.Log($"本机 Java 扫描完成 · 检查 {roots.Count} 个目录根，发现 {found.Count} 个运行时入口");
     }
 
     private string[] ReadCachedBins()
@@ -375,7 +380,15 @@ public sealed class JavaManager
         return int.TryParse(numStr, out int m) ? m : 0;
     }
 
-    public async Task<(string Url, string FileName)> ResolveAdoptiumDownloadAsync(int featureVersion, CancellationToken ct)
+    public sealed record JavaPackage(string Url, string FileName, string Sha256, long? Size = null);
+
+    private static string Digest(string text)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(text.Trim(), @"^(?:SHA256\s*\([^)]+\)\s*=\s*)?([0-9a-fA-F]{64})(?:\s|$)");
+        return match.Success ? match.Groups[1].Value : throw new InvalidDataException("发布方未提供有效的 SHA-256");
+    }
+
+    public async Task<JavaPackage> ResolveAdoptiumDownloadAsync(int featureVersion, CancellationToken ct)
     {
         string api = $"https://api.adoptium.net/v3/assets/latest/{featureVersion}/hotspot?os=windows&architecture=x64&image_type=jdk";
         using var req = new HttpRequestMessage(HttpMethod.Get, api);
@@ -385,72 +398,106 @@ public sealed class JavaManager
         using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
         var first = doc.RootElement.EnumerateArray().FirstOrDefault();
         var pkg = first.GetProperty("binary").GetProperty("package");
-        return (pkg.GetProperty("link").GetString() ?? "", pkg.GetProperty("name").GetString() ?? $"jdk-{featureVersion}.zip");
+        return new(pkg.GetProperty("link").GetString()!, pkg.GetProperty("name").GetString()!,
+            Digest(pkg.GetProperty("checksum").GetString() ?? ""), pkg.TryGetProperty("size", out var size) ? size.GetInt64() : null);
     }
 
-    public async Task<(string Url, string FileName)> ResolveVendorJavaDownloadAsync(string vendorId, int featureVersion, CancellationToken ct)
+    public async Task<JavaPackage> ResolveVendorJavaDownloadAsync(string vendorId, int featureVersion, CancellationToken ct)
     {
         string v = (vendorId ?? "temurin").Trim().ToLowerInvariant();
         if (v == "zulu")
         {
-            string api = $"https://api.azul.com/metadata/v1/zulu/packages/?java_version={featureVersion}&os=windows&arch=x86&hw_bitness=64&archive_type=zip&java_package_type=jdk&javafx_bundled=false&release_status=ga&availability_types=CA&page=1&page_size=1";
+            string api = $"https://api.azul.com/metadata/v1/zulu/packages/?java_version={featureVersion}&os=windows&arch=x86&hw_bitness=64&archive_type=zip&java_package_type=jdk&javafx_bundled=false&release_status=ga&availability_types=CA&page=1&page_size=25";
             using var req = new HttpRequestMessage(HttpMethod.Get, api);
             req.Headers.UserAgent.ParseAdd("DCL-Launcher/1.0");
             using var resp = await _http.SendAsync(req, ct);
             resp.EnsureSuccessStatusCode();
             using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
-            var first = doc.RootElement.EnumerateArray().FirstOrDefault();
+            var first = doc.RootElement.EnumerateArray().FirstOrDefault(p => p.TryGetProperty("name", out var n) &&
+                !(n.GetString() ?? "").Contains("-crac-", StringComparison.OrdinalIgnoreCase));
             if (first.ValueKind == JsonValueKind.Object && first.TryGetProperty("download_url", out var dlEl))
             {
                 string dlUrl = dlEl.GetString() ?? "";
                 string fileName = first.TryGetProperty("name", out var nEl) ? (nEl.GetString() ?? $"zulu-{featureVersion}.zip") : $"zulu-{featureVersion}.zip";
-                if (!string.IsNullOrWhiteSpace(dlUrl)) return (dlUrl, fileName);
+                if (!string.IsNullOrWhiteSpace(dlUrl))
+                {
+                    string uuid = first.GetProperty("package_uuid").GetString()!;
+                    using var detail = JsonDocument.Parse(await _http.GetStringAsync("https://api.azul.com/metadata/v1/zulu/packages/" + Guid.Parse(uuid), ct));
+                    return new(dlUrl, fileName, Digest(detail.RootElement.GetProperty("sha256_hash").GetString()!));
+                }
             }
             throw new InvalidOperationException($"Azul Zulu 未找到 Java {featureVersion} Windows x64 安装包");
         }
         if (v == "microsoft")
         {
-            if (featureVersion is not (11 or 17 or 21))
-                throw new InvalidOperationException($"Microsoft OpenJDK 仅提供 Java 11 / 17 / 21 LTS 版本");
-            return ($"https://aka.ms/download-jdk/microsoft-jdk-{featureVersion}-windows-x64.zip", $"microsoft-jdk-{featureVersion}-windows-x64.zip");
+            if (featureVersion is not (11 or 17 or 21 or 25))
+                throw new InvalidOperationException($"Microsoft OpenJDK 仅提供 Java 11 / 17 / 21 / 25 LTS 版本");
+            string page = await _http.GetStringAsync("https://learn.microsoft.com/en-us/java/openjdk/download", ct);
+            var match = System.Text.RegularExpressions.Regex.Match(page,
+                $@"https://aka\.ms/download-jdk/(microsoft-jdk-{featureVersion}(?:\.[0-9]+)+-windows-x64\.zip)\.sha256sum\.txt",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (!match.Success) throw new InvalidDataException("未找到 Microsoft 发布的 Windows x64 SHA-256");
+            string name = match.Groups[1].Value;
+            return new("https://aka.ms/download-jdk/" + name, name, Digest(await _http.GetStringAsync(match.Value, ct)));
         }
         if (v == "oracle")
         {
-            if (featureVersion is not (17 or 21 or 25))
-                throw new InvalidOperationException($"Oracle 免登录直链仅支持 Java 17 / 21 / 25，低版本请切换到 Temurin 或 Azul Zulu");
-            return ($"https://download.oracle.com/java/{featureVersion}/latest/jdk-{featureVersion}_windows-x64_bin.zip", $"oracle-jdk-{featureVersion}_windows-x64_bin.zip");
+            string url = $"https://download.oracle.com/java/{featureVersion}/latest/jdk-{featureVersion}_windows-x64_bin.zip";
+            try
+            {
+                return new(url, $"oracle-jdk-{featureVersion}_windows-x64_bin.zip", Digest(await _http.GetStringAsync(url + ".sha256", ct)));
+            }
+            catch (HttpRequestException ex) when (ex.StatusCode is System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.Forbidden)
+            {
+                throw new InvalidOperationException($"Oracle 未公开此 Java {featureVersion} 的免登录校验下载。可在 Oracle 官方安装后扫描本机 Java，或在当前页选择同版本 Temurin。", ex);
+            }
         }
         return await ResolveAdoptiumDownloadAsync(featureVersion, ct);
     }
 
     public async Task<string> ExtractJavaArchiveAsync(string zipPath, int featureVersion, CancellationToken ct, string? baseInstallDir = null)
     {
-        string parentRoot = string.IsNullOrWhiteSpace(baseInstallDir) ? _storage.RuntimeJavaDir : baseInstallDir;
+        string parentRoot = Path.GetFullPath(string.IsNullOrWhiteSpace(baseInstallDir) ? _storage.RuntimeJavaDir : baseInstallDir);
         Directory.CreateDirectory(parentRoot);
         string targetRoot = Path.Combine(parentRoot, $"jdk-{featureVersion}");
-        if (Directory.Exists(targetRoot)) Directory.Delete(targetRoot, true);
-        string tempDir = Path.Combine(_storage.CacheDir, "java", $"extract-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(tempDir);
-
-        await Task.Run(() => ZipFile.ExtractToDirectory(zipPath, tempDir, true), ct);
-
-        var topDirs = Directory.GetDirectories(tempDir);
-        if (topDirs.Length == 1)
+        string backup = targetRoot + ".dcl-previous";
+        string temp = Path.Combine(parentRoot, ".dcl-java-" + Guid.NewGuid().ToString("N"));
+        using var installLock = new FileStream(targetRoot + ".dcl-lock", FileMode.OpenOrCreate,
+            FileAccess.ReadWrite, FileShare.None, 1, FileOptions.DeleteOnClose);
+        if (!Directory.Exists(targetRoot) && Directory.Exists(backup)) Directory.Move(backup, targetRoot);
+        Directory.CreateDirectory(temp);
+        try
         {
-            Directory.Move(topDirs[0], targetRoot);
-            Directory.Delete(tempDir, true);
+            await Task.Run(() => ZipFile.ExtractToDirectory(zipPath, temp), ct);
+            ct.ThrowIfCancellationRequested();
+            var roots = Directory.GetDirectories(temp);
+            string extracted = Directory.Exists(Path.Combine(temp, "bin")) ? temp : roots.Length == 1 ? roots[0] : temp;
+            string bin = Path.Combine(extracted, "bin");
+            var installation = ReadInstallation(bin, []);
+            if (!File.Exists(Path.Combine(bin, "java.exe")) || installation?.Arch != "x64" || ParseMajor(installation.Version) != featureVersion)
+                throw new InvalidDataException($"安装包缺少可用的 Windows x64 Java {featureVersion}");
+            ct.ThrowIfCancellationRequested();
+            if (Directory.Exists(backup)) Directory.Delete(backup, true);
+            if (Directory.Exists(targetRoot)) Directory.Move(targetRoot, backup);
+            try { Directory.Move(extracted, targetRoot); }
+            catch
+            {
+                if (Directory.Exists(backup) && !Directory.Exists(targetRoot)) Directory.Move(backup, targetRoot);
+                throw;
+            }
+            try
+            {
+                if (Directory.Exists(backup)) Directory.Delete(backup, true);
+                var bins = ReadCachedBins().Append(Path.Combine(targetRoot, "bin")).Distinct(StringComparer.OrdinalIgnoreCase);
+                await SaveDiscoveryAsync(bins, CancellationToken.None);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { _storage.Log($"Java 安装后的缓存清理：{ex.Message}"); }
         }
-        else
+        finally
         {
-            Directory.Move(tempDir, targetRoot);
+            try { if (Directory.Exists(temp)) Directory.Delete(temp, true); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { _storage.Log($"Java 临时目录清理：{ex.Message}"); }
         }
-
-        string binDir = Path.Combine(targetRoot, "bin");
-        if (FindExecutable(binDir) != null)
-        {
-            var existing = ReadCachedBins().Concat([binDir]).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-            await File.WriteAllTextAsync(DiscoveryCachePath, JsonSerializer.Serialize(existing), ct);
-        }
-        return Path.Combine(targetRoot, "bin", "javaw.exe");
+        return FindExecutable(Path.Combine(targetRoot, "bin"))!;
     }
 }

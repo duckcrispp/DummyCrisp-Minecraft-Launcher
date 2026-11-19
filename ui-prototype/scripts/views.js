@@ -104,7 +104,7 @@
   }
 
   function mirrorStatus(pingMs) {
-    if (!Number.isFinite(pingMs)) return { text: "—", tone: "" };
+    if (!Number.isFinite(pingMs) || pingMs < 0) return { text: "测速中", tone: "" };
     return {
       text: pingMs >= 2500 ? "超时" : `${pingMs}ms`,
       tone: pingMs >= 1500 ? "is-down" : pingMs >= 150 ? "is-slow" : "is-fast"
@@ -542,15 +542,36 @@
     return "";
   }
 
+  function truncateArtLine(text, maxUnits) {
+    const raw = String(text || "").trim();
+    if (measureVisualUnits(raw) <= maxUnits) return raw;
+    let out = "";
+    let acc = 0;
+    const limit = Math.max(4, maxUnits - 1.0);
+    for (const ch of raw) {
+      const w = ch.charCodeAt(0) > 255 ? 1.0 : 0.56;
+      if (acc + w > limit) break;
+      out += ch;
+      acc += w;
+    }
+    return `${out.trimEnd()}…`;
+  }
+
   function renderVersionArtHero(active, animateStroke, state) {
-    const lines = splitArtHeadline(active.name);
-    const hasAccentLine = Boolean(lines.accent);
-    const maxUnits = Math.max(measureVisualUnits(lines.top), measureVisualUnits(lines.accent), 5.5);
-    // Dynamically fit font size inside 560px box width without wrapping
-    const fontSize = Math.round(Math.max(36, Math.min(60, 495 / maxUnits)));
-    const line1Y = Math.round(fontSize * 0.96);
-    const line2Y = Math.round(fontSize * 2.04);
-    const svgH = hasAccentLine ? Math.round(fontSize * 2.34) : Math.round(fontSize * 1.24);
+    const rawLines = splitArtHeadline(active.name);
+    const hasAccentLine = Boolean(rawLines.accent);
+    // Hard-cap per-line visual width so even very long modpack names stay inside the 580px SVG frame
+    const topLine = truncateArtLine(rawLines.top, 20.5);
+    const accentLine = hasAccentLine ? truncateArtLine(rawLines.accent, 21.5) : "";
+    const maxUnits = Math.max(measureVisualUnits(topLine), measureVisualUnits(accentLine), 5.5);
+    // Dynamically fit font size inside 580px box width while locking the SVG height so below-title controls NEVER shift
+    const fontSize = Math.round(Math.max(26, Math.min(60, 510 / maxUnits)));
+    const FIXED_SVG_H = 140;
+    const blockH = hasAccentLine ? Math.round(fontSize * 2.12) : Math.round(fontSize * 1.08);
+    const baseY = Math.max(0, Math.round((FIXED_SVG_H - blockH) * 0.56));
+    const line1Y = baseY + Math.round(fontSize * 0.92);
+    const line2Y = baseY + Math.round(fontSize * 2.00);
+    const svgH = FIXED_SVG_H;
     const wipeId = `stroke-wipe-${String(active.id || "v").replace(/[^a-z0-9]/gi, "")}`;
     const javaWarning = getInstanceJavaMismatch(state, active);
 
@@ -570,13 +591,13 @@
             </defs>
 
             <!-- Outline Layer (ReactBits Stroke Text) -->
-            <text class="stroke-text__stroke" x="0" y="${line1Y}" font-size="${fontSize}" font-family="var(--font-serif)" font-weight="400">${esc(lines.top)}</text>
-            ${hasAccentLine ? `<text class="stroke-text__stroke" x="0" y="${line2Y}" font-size="${Math.round(fontSize * 0.94)}" font-family="var(--font-display)" font-weight="800">${esc(lines.accent)}</text>` : ""}
+            <text class="stroke-text__stroke" x="0" y="${line1Y}" font-size="${fontSize}" font-family="var(--font-serif)" font-weight="400">${esc(topLine)}</text>
+            ${hasAccentLine ? `<text class="stroke-text__stroke" x="0" y="${line2Y}" font-size="${Math.round(fontSize * 0.94)}" font-family="var(--font-display)" font-weight="800">${esc(accentLine)}</text>` : ""}
 
             <!-- Fill Layer (Contrast Serif + Accent Bold Display) -->
             <g class="stroke-text__fill" clip-path="url(#${wipeId})">
-              <text x="0" y="${line1Y}" font-size="${fontSize}" font-family="var(--font-serif)" font-weight="400" fill="var(--text-primary)">${esc(lines.top)}</text>
-              ${hasAccentLine ? `<text x="0" y="${line2Y}" font-size="${Math.round(fontSize * 0.94)}" font-family="var(--font-display)" font-weight="800" fill="var(--accent-primary)">${esc(lines.accent)}</text>` : ""}
+              <text x="0" y="${line1Y}" font-size="${fontSize}" font-family="var(--font-serif)" font-weight="400" fill="var(--text-primary)">${esc(topLine)}</text>
+              ${hasAccentLine ? `<text x="0" y="${line2Y}" font-size="${Math.round(fontSize * 0.94)}" font-family="var(--font-display)" font-weight="800" fill="var(--accent-primary)">${esc(accentLine)}</text>` : ""}
             </g>
           </svg>
         </h1>
@@ -852,11 +873,28 @@
     if (!activeQuickPanel) return "";
 
     if (activeQuickPanel === "overview") {
-      const iconChoices = Object.entries(MC_ICONS)
-        .map(
-          ([key, item]) => `
+      const hasCustomIcon = Boolean(active.customIcon);
+      const packIconSrc = active.packIcon || active.customIcon || "";
+      const packIconTile = packIconSrc
+        ? `
           <button
-            class="icon-choice-btn ${(active.iconId || "grass") === key ? "is-selected" : ""}"
+            class="icon-choice-btn is-pack-icon ${hasCustomIcon ? "is-selected" : ""}"
+            data-set-icon="__pack__"
+            type="button"
+            title="整合包官方图标"
+            aria-label="整合包官方图标"
+          >
+            <img src="${esc(packIconSrc)}" alt="整合包官方图标" loading="eager" />
+          </button>
+        `
+        : "";
+      const iconChoices =
+        packIconTile +
+        Object.entries(MC_ICONS)
+          .map(
+            ([key, item]) => `
+          <button
+            class="icon-choice-btn ${!hasCustomIcon && (active.iconId || "grass") === key ? "is-selected" : ""}"
             data-set-icon="${key}"
             type="button"
             title="${esc(item.name)}"
@@ -865,8 +903,8 @@
             <img src="${esc(item.src)}" alt="${esc(item.name)}" loading="eager" />
           </button>
         `
-        )
-        .join("");
+          )
+          .join("");
 
       return `<div class="quick-panel-wrap">
         <div class="quick-panel" id="quick-panel" aria-label="概览">
@@ -887,6 +925,29 @@
               <div class="quick-kv-label">游戏版本</div>
               <div class="quick-kv-val">${esc(active.mcVersion)}</div>
             </div>
+          </div>
+          <div class="icon-picker-label">版本名称</div>
+          <div class="overview-name-row">
+            <input
+              class="overview-name-input"
+              id="quick-instance-name-input"
+              type="text"
+              maxlength="80"
+              value="${esc(active.name)}"
+              placeholder="输入自定义版本名称"
+              aria-label="自定义版本名称"
+            />
+            <button
+              class="overview-name-save"
+              id="btn-save-instance-name"
+              type="button"
+              title="保存版本名称"
+              aria-label="保存版本名称"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+            </button>
           </div>
           <div class="icon-picker-label">版本图标</div>
           <div class="icon-picker-grid">${iconChoices}</div>
@@ -2603,15 +2664,15 @@
     const sel = selectedBuilds || {};
     const selectedLoaders = Object.keys(sel).filter((k) => Boolean(sel[k]));
     if (selectedLoaders.includes(loader)) return null;
-    const exclusiveModLoaders = ["Forge", "NeoForge", "Fabric"];
+    const exclusiveModLoaders = ["Forge", "NeoForge", "Fabric", "Quilt"];
     for (const other of selectedLoaders) {
       if (exclusiveModLoaders.includes(loader) && exclusiveModLoaders.includes(other) && loader !== other) {
         return other;
       }
-      if (loader === "OptiFine" && (other === "NeoForge" || other === "Fabric")) {
+      if (loader === "OptiFine" && (other === "NeoForge" || other === "Fabric" || other === "Quilt")) {
         return other;
       }
-      if ((loader === "NeoForge" || loader === "Fabric") && other === "OptiFine") {
+      if ((loader === "NeoForge" || loader === "Fabric" || loader === "Quilt") && other === "OptiFine") {
         return other;
       }
     }
@@ -2750,7 +2811,7 @@
             <span class="mod-tag ${b.releaseType === "Release" ? "is-source" : ""}">${esc(b.releaseType)}</span>
           </div>
           <div class="data-row-sub" style="font-family:var(--font-mono); font-size:11px;">
-            ${detail.hideLoaders ? "" : `${esc(activeLoader)}, `}${esc(b.file)}${depTag}, 下载 ${esc(b.downloads)}, 更新于 ${esc(b.updatedAgo)} · ${esc(b.size)}
+            ${detail.hideLoaders ? "" : `${esc(activeLoader)}, `}${esc(b.file)}${depTag}${b.downloads ? `, 下载 ${esc(b.downloads)}` : ""}, 更新于 ${esc(b.updatedAgo)} · ${esc(b.size)}
           </div>
         </div>
       </div>

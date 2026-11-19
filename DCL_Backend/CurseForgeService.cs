@@ -6,8 +6,22 @@ using static DCL_Launcher.ResourceCatalog;
 
 namespace DCL_Launcher;
 
+internal sealed record CurseForgeManualFile(
+    int ProjectId, int FileId, string ProjectName, string FileName,
+    string DownloadPageUrl, string TargetFolder, string Sha1, long FileSize);
+
+internal sealed class CurseForgeManualFilesRequiredException(
+    string message, IReadOnlyList<CurseForgeManualFile> missingFiles, int autoResolvedCount)
+    : InvalidOperationException(message)
+{
+    public IReadOnlyList<CurseForgeManualFile> MissingFiles { get; } = missingFiles;
+    public int AutoResolvedCount { get; } = autoResolvedCount;
+}
+
 internal sealed class CurseForgeService(HttpClient http)
 {
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTime Time, JsonElement Page)> _filePages = new();
+    internal Func<string> SelectSource { get; set; } = () => "最优";
     private const string OfficialBaseUrl = "https://api.curseforge.com/v1/";
     private const string McimBaseUrl = "https://mod.mcimirror.top/curseforge/v1/";
 
@@ -80,20 +94,32 @@ internal sealed class CurseForgeService(HttpClient http)
     }
 
     public async Task<(Dictionary<string, object?> Project, List<ResourceFile> Files)> GetResourceAsync(
-        string category, string projectId, string key, CancellationToken ct, string route = "auto")
+        string category, string projectId, string key, CancellationToken ct, string route = "auto", string? buildId = null)
     {
         if (!int.TryParse(projectId, out int id) || id <= 0) throw new ArgumentException("无效的 CurseForge 项目 ID");
 
         // 并行请求项目详情与首页文件列表，大幅缩短详情页首开耗时
         var projectTask = GetProjectAsync(category, projectId, key, route, ct);
-        var firstFilesPageTask = GetAsync($"mods/{id}/files?index=0&pageSize=50", key, route, ct);
+        bool specific = int.TryParse(buildId, out int fileId) && fileId > 0;
+        var firstFilesPageTask = GetAsync(specific ? $"mods/{id}/files/{fileId}" : $"mods/{id}/files?index=0&pageSize=50", key, route, ct);
         await Task.WhenAll(projectTask, firstFilesPageTask);
 
         using var project = projectTask.Result;
         using var firstPageDoc = firstFilesPageTask.Result;
         var mod = project.RootElement.GetProperty("data");
         bool allowDistribution = !mod.TryGetProperty("allowModDistribution", out var flag) || flag.ValueKind != JsonValueKind.False;
-        var files = await FilesFromFirstPageAsync(id, firstPageDoc, key, category, allowDistribution, route, ct);
+        List<ResourceFile> files;
+        if (specific)
+        {
+            var selected = firstPageDoc.RootElement.GetProperty("data");
+            if (Number(selected, "id") != fileId || Number(selected, "modId") != id)
+                throw new InvalidDataException("CurseForge 返回的构建与所选项目不符");
+            if (category == "modpacks" && selected.TryGetProperty("isServerPack", out var server) && server.ValueKind == JsonValueKind.True)
+                throw new InvalidOperationException("所选构建是服务端整合包，请选择客户端构建。");
+            files = [ParseFile(selected, allowDistribution)];
+        }
+        else files = await FilesFromFirstPageAsync(id, firstPageDoc, key, category, allowDistribution, route, ct);
+        await FillMissingUrlsFromModrinthAsync(files, ct);
         var item = Project(mod, category);
         var links = new Dictionary<string, string>();
         if (item["webUrl"] is string { Length: > 0 } url) links["curseforge"] = url;
@@ -154,7 +180,8 @@ internal sealed class CurseForgeService(HttpClient http)
         int projectId, JsonDocument firstPageDoc, string key, string category, bool allowDistribution, string route, CancellationToken ct)
     {
         const int size = 50;
-        const int maxExtraPages = 3; // 首页 50 + 并行补拉最多 3 页 = 200 条最新构建，避免 10-20 轮串行请求卡数秒
+        const int maxResults = 10000;
+        const int maxAutoPages = 8; // 首页 50 + 最多 8 页（450 条最新构建），避免 2000+ 构建大型 Mod 详情页卡顿
         var files = new List<ResourceFile>(200);
 
         void AppendPage(JsonElement root)
@@ -170,25 +197,31 @@ internal sealed class CurseForgeService(HttpClient http)
 
         AppendPage(firstPageDoc.RootElement);
         long totalCount = firstPageDoc.RootElement.TryGetProperty("pagination", out var pag) ? Number(pag, "totalCount") : files.Count;
-        if (files.Count >= size && totalCount > size)
+        if (totalCount > size)
         {
-            int extraPages = (int)Math.Min(maxExtraPages, (totalCount - 1) / size);
-            var tasks = Enumerable.Range(1, extraPages).Select(async pageIdx =>
+            int totalExtraPages = (int)((Math.Min(maxResults, totalCount) - 1) / size);
+            int targetPages = Math.Min(totalExtraPages, maxAutoPages);
+            for (int pageStart = 1; pageStart <= totalExtraPages; pageStart += 4)
             {
-                try
+                if (pageStart > targetPages && files.Count > 0) break;
+                int batchEnd = Math.Min(files.Count == 0 ? totalExtraPages : targetPages, pageStart + 3);
+                var batch = Enumerable.Range(pageStart, batchEnd - pageStart + 1);
+                var results = await Task.WhenAll(batch.Select(async page =>
                 {
-                    return await GetAsync($"mods/{projectId}/files?index={pageIdx * size}&pageSize={size}", key, route, ct);
-                }
-                catch
-                {
-                    return null;
-                }
-            }).ToArray();
-            var docs = await Task.WhenAll(tasks);
-            foreach (var doc in docs)
-            {
-                if (doc == null) continue;
-                using (doc) AppendPage(doc.RootElement);
+                    string path = $"mods/{projectId}/files?index={page * size}&pageSize={size}";
+                    string cacheKey = NormalizeRoute(route) + ":" + path;
+                    if (_filePages.TryGetValue(cacheKey, out var cached) && cached.Time > DateTime.UtcNow.AddMinutes(-5))
+                        return cached.Page;
+                    using var doc = await GetAsync(path, key, route, ct);
+                    var root = doc.RootElement.Clone();
+                    if (!root.TryGetProperty("data", out var rows) || rows.ValueKind != JsonValueKind.Array)
+                        throw new InvalidDataException($"CurseForge 构建第 {page + 1} 页无效");
+                    if (_filePages.Count > 512)
+                        foreach (var stale in _filePages.OrderBy(p => p.Value.Time).Take(64)) _filePages.TryRemove(stale.Key, out _);
+                    _filePages[cacheKey] = (DateTime.UtcNow, root);
+                    return root;
+                }));
+                foreach (var root in results) AppendPage(root);
             }
         }
         return files;
@@ -240,8 +273,118 @@ internal sealed class CurseForgeService(HttpClient http)
             Date(Text(file, "fileDate")), Number(file, "fileLength"), type, Number(file, "downloadCount"), deps);
     }
 
-    internal async Task<List<(string Path, ResourceFile File)>> GetPackFilesAsync(
-        IReadOnlyDictionary<int, int> projectsByFile, string key, CancellationToken ct, string route = "auto")
+    /// <summary>
+    /// Fills empty FileUrl entries on files dual-hosted on Modrinth by querying Modrinth's bulk SHA-1 endpoint.
+    /// </summary>
+    private async Task<int> FillMissingUrlsFromModrinthAsync(IList<ResourceFile> files, CancellationToken ct)
+    {
+        var candidates = new List<(int Index, string Sha1)>();
+        for (int i = 0; i < files.Count; i++)
+        {
+            var f = files[i];
+            if (f.FileUrl.Length == 0 && f.Sha1.Length == 40 && f.Sha1.All(Uri.IsHexDigit))
+                candidates.Add((i, f.Sha1.ToLowerInvariant()));
+        }
+        if (candidates.Count == 0) return 0;
+
+        var urlBySha1 = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string[] batch in candidates.Select(c => c.Sha1).Distinct().Chunk(100))
+        {
+            foreach (string endpoint in DownloadRoutes.Files("https://api.modrinth.com/v2/version_files", SelectSource(), true))
+            {
+                try
+                {
+                    using var req = new HttpRequestMessage(HttpMethod.Post, endpoint);
+                    req.Content = JsonContent.Create(new { hashes = batch, algorithm = "sha1" });
+                    using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    cts.CancelAfter(TimeSpan.FromSeconds(4));
+                    using var resp = await http.SendAsync(req, cts.Token);
+                    if (!resp.IsSuccessStatusCode) continue;
+                    using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(cts.Token));
+                    if (doc.RootElement.ValueKind != JsonValueKind.Object) continue;
+                    foreach (var prop in doc.RootElement.EnumerateObject())
+                    {
+                        if (prop.Value.ValueKind != JsonValueKind.Object) continue;
+                        string? chosenUrl = null;
+                        foreach (var mrFile in Array(prop.Value, "files"))
+                        {
+                            string mrUrl = Text(mrFile, "url");
+                            if (!Uri.TryCreate(mrUrl, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps) continue;
+                            string mrSha1 = mrFile.TryGetProperty("hashes", out var hObj) ? Text(hObj, "sha1") : "";
+                            if (mrSha1.Equals(prop.Name, StringComparison.OrdinalIgnoreCase))
+                            {
+                                chosenUrl = mrUrl;
+                                break;
+                            }
+                        }
+                        if (!string.IsNullOrEmpty(chosenUrl))
+                            urlBySha1[prop.Name] = chosenUrl;
+                    }
+                }
+                catch (Exception ex) when (!ct.IsCancellationRequested && ex is HttpRequestException or IOException or OperationCanceledException or JsonException) { }
+                if (batch.All(urlBySha1.ContainsKey)) break;
+            }
+        }
+
+        int resolved = 0;
+        foreach (var (index, sha1) in candidates)
+        {
+            if (urlBySha1.TryGetValue(sha1, out string? url))
+            {
+                files[index] = files[index] with { FileUrl = url };
+                resolved++;
+            }
+        }
+        return resolved;
+    }
+
+    private static string? FindVerifiedLocalFile(ResourceFile file, IReadOnlyList<string>? localSearchDirs)
+    {
+        if (localSearchDirs == null || localSearchDirs.Count == 0 || !InstanceManager.IsFileName(file.File) || file.Sha1.Length != 40) return null;
+        string expectedName = file.File;
+        string stem = Path.GetFileNameWithoutExtension(expectedName);
+        string ext = Path.GetExtension(expectedName);
+        foreach (string dir in localSearchDirs)
+        {
+            if (string.IsNullOrWhiteSpace(dir) || !Directory.Exists(dir)) continue;
+            var candidates = new List<string>();
+            string direct = Path.Combine(dir, expectedName);
+            if (File.Exists(direct)) candidates.Add(direct);
+            try
+            {
+                // Browsers save duplicates as "<stem> (1)<ext>"
+                if (stem.Length > 0 && ext.Length > 0)
+                {
+                    foreach (string match in Directory.EnumerateFiles(dir, $"{stem}*{ext}", SearchOption.TopDirectoryOnly))
+                    {
+                        if (!match.Equals(direct, StringComparison.OrdinalIgnoreCase))
+                            candidates.Add(match);
+                    }
+                }
+            }
+            catch { }
+
+            foreach (string path in candidates)
+            {
+                try
+                {
+                    var info = new FileInfo(path);
+                    if (file.Size > 0 && info.Length != file.Size) continue;
+                    if (file.Sha1.Length == 40)
+                    {
+                        if (DownloadManager.ComputeSha1Hex(path).Equals(file.Sha1, StringComparison.OrdinalIgnoreCase))
+                            return path;
+                    }
+                }
+                catch { }
+            }
+        }
+        return null;
+    }
+
+    internal async Task<List<(string Path, ResourceFile File, string? LocalPath)>> GetPackFilesAsync(
+        IReadOnlyDictionary<int, int> projectsByFile, string key, CancellationToken ct,
+        string route = "auto", IReadOnlyList<string>? localSearchDirs = null)
     {
         var files = new Dictionary<int, ResourceFile>();
         foreach (var batch in projectsByFile.Keys.Chunk(50))
@@ -255,37 +398,104 @@ internal sealed class CurseForgeService(HttpClient http)
             }
         }
 
-        var unavailable = projectsByFile.Where(item => !files.TryGetValue(item.Key, out var file) || file.FileUrl.Length == 0)
-            .Select(item => files.TryGetValue(item.Key, out var file) ? file.File : $"项目 {item.Value} / 文件 {item.Key}").ToArray();
-        if (unavailable.Length > 0)
+        // Cross-platform legal fallback: look up missing files by exact SHA-1 on Modrinth
+        var missingUrlEntries = projectsByFile
+            .Where(kv => files.TryGetValue(kv.Key, out var f) && f.FileUrl.Length == 0)
+            .Select(kv => (FileId: kv.Key, File: files[kv.Key]))
+            .ToList();
+        int autoResolvedCount = 0;
+        if (missingUrlEntries.Count > 0)
         {
-            string count = unavailable.Length > 3 ? $"等 {unavailable.Length} 个文件" : "";
-            throw new InvalidOperationException($"CurseForge 未向启动器提供必需文件：{string.Join("、", unavailable.Take(3))}{count}。可在 CurseForge 客户端安装此整合包。");
+            var patchList = missingUrlEntries.Select(e => e.File).ToList();
+            autoResolvedCount = await FillMissingUrlsFromModrinthAsync(patchList, ct);
+            for (int i = 0; i < missingUrlEntries.Count; i++)
+                files[missingUrlEntries[i].FileId] = patchList[i];
+        }
+
+        // Match any remaining opt-out files already present in local Downloads / cache directories
+        var localPaths = new Dictionary<int, string>();
+        var stillMissingIds = new List<int>();
+        foreach (var (fileId, _) in projectsByFile)
+        {
+            if (!files.TryGetValue(fileId, out var f))
+            {
+                stillMissingIds.Add(fileId);
+                continue;
+            }
+            if (f.FileUrl.Length > 0) continue;
+            string? local = FindVerifiedLocalFile(f, localSearchDirs);
+            if (local != null) localPaths[fileId] = local;
+            else stillMissingIds.Add(fileId);
         }
 
         var classes = new Dictionary<int, int>();
-        var archiveProjects = files.Where(item => !item.Value.File.EndsWith(".jar", StringComparison.OrdinalIgnoreCase))
-            .Select(item => projectsByFile[item.Key]).Distinct();
-        foreach (var batch in archiveProjects.Chunk(50))
+        var projectMeta = new Dictionary<int, (string Name, string WebUrl)>();
+        var metaProjects = files.Where(item => !item.Value.File.EndsWith(".jar", StringComparison.OrdinalIgnoreCase))
+            .Select(item => projectsByFile[item.Key])
+            .Concat(stillMissingIds.Select(fid => projectsByFile[fid]))
+            .Distinct()
+            .ToArray();
+        foreach (var batch in metaProjects.Chunk(50))
         {
             using var doc = await RequestAsync(HttpMethod.Post, "mods", key, new { modIds = batch }, route, ct);
             foreach (var project in Array(doc.RootElement, "data"))
-                classes[checked((int)Number(project, "id"))] = checked((int)Number(project, "classId"));
+            {
+                int pid = checked((int)Number(project, "id"));
+                classes[pid] = checked((int)Number(project, "classId"));
+                string webUrl = project.TryGetProperty("links", out var links) && links.ValueKind == JsonValueKind.Object
+                    ? Text(links, "websiteUrl") : "";
+                projectMeta[pid] = (Text(project, "name", $"Project {pid}"), webUrl);
+            }
         }
 
-        var result = new List<(string Path, ResourceFile File)>();
+        static string TargetDirectoryForClass(string fileName, int classId)
+        {
+            if (fileName.EndsWith(".jar", StringComparison.OrdinalIgnoreCase)) return "mods";
+            return classId switch
+            {
+                6 => "mods",
+                12 => "resourcepacks",
+                6552 => "shaderpacks",
+                _ => "mods"
+            };
+        }
+
+        if (stillMissingIds.Count > 0)
+        {
+            var manualList = new List<CurseForgeManualFile>(stillMissingIds.Count);
+            foreach (int fileId in stillMissingIds)
+            {
+                int projectId = projectsByFile[fileId];
+                files.TryGetValue(fileId, out var f);
+                projectMeta.TryGetValue(projectId, out var meta);
+                string fileName = f?.File is { Length: > 0 } fn ? fn : $"file-{fileId}.jar";
+                string pName = !string.IsNullOrWhiteSpace(meta.Name) ? meta.Name : $"CurseForge #{projectId}";
+                string baseWeb = !string.IsNullOrWhiteSpace(meta.WebUrl)
+                    ? meta.WebUrl.TrimEnd('/')
+                    : $"https://www.curseforge.com/projects/{projectId}";
+                string pageUrl = $"{baseWeb}/download/{fileId}";
+                string folder = f != null ? TargetDirectoryForClass(fileName, classes.GetValueOrDefault(projectId)) : "mods";
+                manualList.Add(new CurseForgeManualFile(projectId, fileId, pName, fileName, pageUrl, folder, f?.Sha1 ?? "", f?.Size ?? 0));
+            }
+            string preview = string.Join("、", manualList.Take(3).Select(m => m.FileName));
+            string count = manualList.Count > 3 ? $"等 {manualList.Count} 个文件" : "";
+            string autoNote = autoResolvedCount > 0 ? $"（已通过 Modrinth 哈希自动补全 {autoResolvedCount} 个）" : "";
+            string verifyNote = manualList.Any(f => f.Sha1.Length != 40) ? " 部分文件缺少发布方摘要，暂时无法自动验证。" : "";
+            throw new CurseForgeManualFilesRequiredException(
+                $"CurseForge 禁止第三方直链下载 {manualList.Count} 个文件{autoNote}：{preview}{count}。请从弹窗打开官方页下载至浏览器「下载」文件夹后点击「▶」重试。{verifyNote}",
+                manualList,
+                autoResolvedCount);
+        }
+
+        var result = new List<(string Path, ResourceFile File, string? LocalPath)>();
         foreach (var (id, file) in files)
         {
             if (!InstanceManager.IsFileName(file.File)) throw new InvalidDataException("CurseForge 文件名无效。");
-            string directory = file.File.EndsWith(".jar", StringComparison.OrdinalIgnoreCase) ? "mods"
-                : classes.GetValueOrDefault(projectsByFile[id]) switch
-                {
-                    6 => "mods",
-                    12 => "resourcepacks",
-                    6552 => "shaderpacks",
-                    _ => throw new InvalidDataException($"不支持此 CurseForge 依赖的安装路径：{file.File}")
-                };
-            result.Add(($"{directory}/{file.File}", file));
+            int classId = classes.GetValueOrDefault(projectsByFile[id]);
+            if (!file.File.EndsWith(".jar", StringComparison.OrdinalIgnoreCase) && classId is not (6 or 12 or 6552))
+                throw new InvalidDataException($"不支持此 CurseForge 依赖的安装路径：{file.File}");
+            string directory = TargetDirectoryForClass(file.File, classId);
+            result.Add(($"{directory}/{file.File}", file, localPaths.GetValueOrDefault(id)));
         }
         return result;
     }
@@ -313,7 +523,9 @@ internal sealed class CurseForgeService(HttpClient http)
         {
             try
             {
-                return await SendOnceAsync(method, OfficialBaseUrl, path, key, body, ct);
+                using var primary = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                primary.CancelAfter(TimeSpan.FromSeconds(5));
+                return await SendOnceAsync(method, OfficialBaseUrl, path, key, body, primary.Token);
             }
             catch (Exception) when (!ct.IsCancellationRequested)
             {
@@ -330,11 +542,13 @@ internal sealed class CurseForgeService(HttpClient http)
         if (body != null) request.Content = JsonContent.Create(body);
         if (baseUrl == OfficialBaseUrl && !string.IsNullOrWhiteSpace(apiKey))
             request.Headers.Add("x-api-key", apiKey);
-        using var response = await http.SendAsync(request, ct);
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        budget.CancelAfter(TimeSpan.FromSeconds(10));
+        using var response = await http.SendAsync(request, budget.Token);
         if (baseUrl == OfficialBaseUrl && response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
             throw new InvalidOperationException("CurseForge 拒绝了 API Key。请检查开发者控制台的密钥与访问权限。");
         response.EnsureSuccessStatusCode();
-        return JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+        return JsonDocument.Parse(await response.Content.ReadAsStringAsync(budget.Token));
     }
 }
 

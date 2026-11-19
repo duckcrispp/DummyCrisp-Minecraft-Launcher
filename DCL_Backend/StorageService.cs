@@ -117,11 +117,15 @@ public sealed class StorageService
     }
 
     internal const string ModIconRoute = "launcher-mod-icons/";
+    private static readonly string[] AllowedIconExtensions = [".png", ".webp", ".jpg", ".jpeg"];
     private string ModIconDirectory => Path.Combine(CacheDir, "mod-icons");
 
-    internal string CacheModIcon(byte[] data)
+    internal string CacheModIcon(byte[] data) => CacheIconAsset(data, ".png");
+
+    internal string CacheIconAsset(byte[] data, string extension)
     {
-        string name = Convert.ToHexString(SHA256.HashData(data)).ToLowerInvariant() + ".png";
+        string ext = AllowedIconExtensions.FirstOrDefault(e => e.Equals(extension, StringComparison.OrdinalIgnoreCase)) ?? ".png";
+        string name = Convert.ToHexString(SHA256.HashData(data)).ToLowerInvariant() + ext;
         string path = Path.Combine(ModIconDirectory, name);
         if (!File.Exists(path))
         {
@@ -142,8 +146,8 @@ public sealed class StorageService
 
     internal Stream? OpenModIcon(string name)
     {
-        if (name.Length != 68 || !name.EndsWith(".png", StringComparison.Ordinal) ||
-            !name.Take(64).All(Uri.IsHexDigit)) return null;
+        string? ext = AllowedIconExtensions.FirstOrDefault(e => name.EndsWith(e, StringComparison.Ordinal));
+        if (ext == null || name.Length != 64 + ext.Length || !name.Take(64).All(Uri.IsHexDigit)) return null;
         string path = Path.Combine(ModIconDirectory, name);
         return File.Exists(path) ? new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete) : null;
     }

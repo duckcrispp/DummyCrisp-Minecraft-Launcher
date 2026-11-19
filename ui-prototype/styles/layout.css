@@ -1681,6 +1681,7 @@ html.is-desktop-host .win-controls {
   display: block;
   width: 100%;
   max-width: 100%;
+  aspect-ratio: 596 / 148;
   height: auto;
   overflow: visible;
 }
@@ -1736,8 +1737,9 @@ html.is-desktop-host .win-controls {
 
 .version-art-meta-row {
   margin-top: 8px;
+  min-height: 22px;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 8px 12px;
 }
@@ -1747,6 +1749,10 @@ html.is-desktop-host .win-controls {
   font-size: 12px;
   color: var(--text-secondary);
   letter-spacing: 0.02em;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .version-java-warning {
@@ -2260,6 +2266,87 @@ html.is-desktop-host .win-controls {
   font-size: 11px;
   color: var(--text-secondary);
   margin-bottom: 8px;
+}
+
+.overview-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.overview-name-input {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line-solid-subtle);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition: border-color 200ms ease, box-shadow 200ms ease, background 200ms ease;
+}
+
+.overview-name-input::placeholder {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.overview-name-input:hover {
+  border-color: var(--line-solid);
+}
+
+.overview-name-input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-primary) 22%, transparent);
+}
+
+.overview-name-save {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  border: 1px solid var(--line-solid-subtle);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition:
+    background 200ms ease,
+    border-color 200ms ease,
+    color 200ms ease,
+    transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.overview-name-save svg {
+  width: 15px;
+  height: 15px;
+  display: block;
+}
+
+.overview-name-save:hover,
+.overview-name-save:focus-visible {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: var(--text-on-accent);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.overview-name-save:active {
+  transform: scale(0.95);
+}
+
+.icon-choice-btn.is-pack-icon img {
+  border-radius: 6px;
+  object-fit: cover;
 }
 
 .icon-picker-grid {
@@ -7318,6 +7405,84 @@ html.is-desktop-host:not([data-window-maximized="true"]) .win-resize-edge {
 .dcl-cp-swatch:hover {
   transform: scale(1.1);
   border-color: var(--text-primary);
+}
+
+/* CurseForge Manual Dependency Guidance Dialog */
+#cf-manual-dialog {
+  width: min(580px, 100%);
+}
+
+#cf-manual-dialog .crash-modal-foot {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  align-items: stretch;
+}
+
+#cf-manual-dialog .crash-modal-foot .chip-btn {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.cf-manual-list {
+  display: grid;
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.cf-manual-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--line-solid-subtle);
+}
+
+.cf-manual-item .chip-btn {
+  min-width: 108px;
+  height: 32px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.cf-manual-item-meta {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.cf-manual-item-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cf-manual-item-file {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -36,13 +36,13 @@ internal static class Program
         Application.Run(new MainForm(storage));
     }
 
-    private static int RunSelfTest(string testRoot)
+    private static int RunSelfTest(string parent)
     {
+        string testRoot = Path.Combine(Path.GetFullPath(parent), "dcl-check-" + Guid.NewGuid().ToString("N"));
         try
         {
-            if (Directory.Exists(testRoot)) Directory.Delete(testRoot, true);
             var storage = new StorageService(testRoot);
-            var bridge = new HostBridge(storage);
+            var bridge = new HostBridge(storage, startOnlineServices: false);
 
             // 1. Verify Embedded UI Resources inside single EXE
             var asm = Assembly.GetExecutingAssembly();
@@ -100,13 +100,16 @@ internal static class Program
             var javas = new JavaManager(storage, new HttpClient()).ScanLocalJavas();
             var exportRes = bridge.HandleCommandAsync("export_crash_report", default).GetAwaiter().GetResult();
             Console.WriteLine($"SELF-TEST PASSED | EmbeddedRes={names.Length} | SysRAM={tot}MB (Free {avail}MB) | AutoRAM Vanilla={vanillaMem}MB Modpack={packMem}MB | LocalJavas={javas.Count} | CrashExportOK={exportRes != null}");
-            Directory.Delete(testRoot, true);
             return 0;
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"FAIL: Exception in self-test: {ex}");
             return 9;
+        }
+        finally
+        {
+            if (Directory.Exists(testRoot)) Directory.Delete(testRoot, true);
         }
     }
 }

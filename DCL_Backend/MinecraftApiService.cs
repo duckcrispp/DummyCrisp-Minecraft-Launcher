@@ -6,9 +6,9 @@ using static DCL_Launcher.ResourceCatalog;
 
 namespace DCL_Launcher;
 
-public sealed class MinecraftApiService
+public sealed partial class MinecraftApiService
 {
-    internal const int AssetDownloadConcurrency = 64;
+    internal const int AssetDownloadConcurrency = 16;
     private readonly StorageService _storage;
     private readonly HttpClient _http;
     private readonly DownloadManager _dl;
@@ -22,9 +22,9 @@ public sealed class MinecraftApiService
     }
 
     private Task DownloadMirroredFileAsync(string url, string destination, string? sha1, string mirror,
-        Action<long, long?>? progress, CancellationToken ct) =>
+        Action<long, long?>? progress, CancellationToken ct, long? size = null) =>
         _dl.DownloadVerifiedFileAsync(DownloadRoutes.Files(url, mirror, !string.IsNullOrWhiteSpace(sha1)),
-            destination, sha1, null, null, progress, ct);
+            destination, sha1, null, size, progress, ct);
 
     public async Task<List<Dictionary<string, object?>>> FetchVersionManifestAsync(string mirror, CancellationToken ct)
     {
@@ -36,8 +36,13 @@ public sealed class MinecraftApiService
             jsonText = await _dl.GetDownloadTextAsync(DownloadRoutes.Files(url, mirror, true), ct, text =>
             {
                 using var manifest = JsonDocument.Parse(text);
-                if (manifest.RootElement.ValueKind != JsonValueKind.Object || !manifest.RootElement.TryGetProperty("latest", out _) ||
-                    !manifest.RootElement.TryGetProperty("versions", out var entries) || entries.ValueKind != JsonValueKind.Array)
+                var root = manifest.RootElement;
+                if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("latest", out var latest) ||
+                    latest.ValueKind != JsonValueKind.Object || Text(latest, "release").Length == 0 || Text(latest, "snapshot").Length == 0 ||
+                    !root.TryGetProperty("versions", out var entries) || entries.ValueKind != JsonValueKind.Array || entries.GetArrayLength() == 0 ||
+                    entries.EnumerateArray().Any(v => v.ValueKind != JsonValueKind.Object || Text(v, "id").Length == 0 ||
+                        Text(v, "type").Length == 0 || Text(v, "releaseTime").Length == 0 ||
+                        !Uri.TryCreate(Text(v, "url"), UriKind.Absolute, out var u) || u.Scheme != Uri.UriSchemeHttps))
                     throw new InvalidDataException("版本清单格式无效");
             });
             string tempPath = cachePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
@@ -56,6 +61,19 @@ public sealed class MinecraftApiService
             jsonText = await File.ReadAllTextAsync(cachePath, ct);
         }
 
+        return ParseVersions(jsonText);
+    }
+
+    internal List<Dictionary<string, object?>> CachedVersions()
+    {
+        string path = Path.Combine(_storage.ManifestsCacheDir, "version_manifest_v2.json");
+        if (!File.Exists(path)) return [];
+        try { return ParseVersions(File.ReadAllText(path)); }
+        catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException or InvalidOperationException) { return []; }
+    }
+
+    private static List<Dictionary<string, object?>> ParseVersions(string jsonText)
+    {
         using var doc = JsonDocument.Parse(jsonText);
         string latestRelease = doc.RootElement.GetProperty("latest").GetProperty("release").GetString() ?? "";
         string latestSnapshot = doc.RootElement.GetProperty("latest").GetProperty("snapshot").GetString() ?? "";
@@ -95,12 +113,17 @@ public sealed class MinecraftApiService
             {
                 "ancient" or "april" => [],
                 "snapshot" => DateTimeOffset.TryParse(relTimeRaw, out var sDt) && sDt >= new DateTimeOffset(2018, 10, 24, 0, 0, 0, TimeSpan.Zero)
-                    ? ["Fabric"]
+                    ? (sDt >= new DateTimeOffset(2023, 10, 1, 0, 0, 0, TimeSpan.Zero) ? ["Fabric", "NeoForge"] : ["Fabric"])
                     : [],
-                _ => VersionComparer.Compare(id, "1.20.2") >= 0 ? ["Forge", "NeoForge", "Fabric", "OptiFine"]
-                    : VersionComparer.Compare(id, "1.14") >= 0 ? ["Forge", "Fabric", "OptiFine"]
-                    : VersionComparer.Compare(id, "1.1") >= 0 ? ["Forge", "OptiFine"]
-                    : []
+                _ => VersionComparer.Compare(id, "1.20.1") >= 0
+                    ? ["Fabric", "NeoForge", "Forge", "Quilt", "OptiFine"]
+                    : VersionComparer.Compare(id, "1.14") >= 0
+                        ? ["Fabric", "Forge", "Quilt", "OptiFine"]
+                        : VersionComparer.Compare(id, "1.13") >= 0
+                            ? ["Forge", "OptiFine"]
+                            : VersionComparer.Compare(id, "1.7.10") >= 0
+                                ? ["OptiFine"]
+                                : []
             };
 
             list.Add(new Dictionary<string, object?>
@@ -112,6 +135,7 @@ public sealed class MinecraftApiService
                 ["date"] = formattedTime.Length >= 10 ? formattedTime[..10] : formattedTime,
                 ["icon"] = icon,
                 ["url"] = v.GetProperty("url").GetString(),
+                ["sha1"] = Text(v, "sha1"),
                 ["loaders"] = verLoaders,
                 ["java"] = "Java 21"
             });
@@ -127,7 +151,7 @@ public sealed class MinecraftApiService
         string mirror,
         IProgress<(int Progress, string Speed)> progress,
         CancellationToken ct,
-        string? stagingDirectory = null)
+        string? stagingDirectory = null, string? versionSha1 = null)
     {
         string safeName = string.Concat(instanceName.Split(Path.GetInvalidFileNameChars())).Trim();
         if (string.IsNullOrWhiteSpace(safeName)) safeName = mcVersion;
@@ -144,7 +168,7 @@ public sealed class MinecraftApiService
             using var manifest = JsonDocument.Parse(text);
             if (manifest.RootElement.ValueKind != JsonValueKind.Object || Text(manifest.RootElement, "id") != mcVersion)
                 throw new InvalidDataException("服务器返回了不同的 Minecraft 版本");
-        });
+        }, versionSha1);
         string verJsonPath = Path.Combine(verDir, $"{safeName}.json");
 
         using var doc = JsonDocument.Parse(verJsonText);
@@ -163,11 +187,11 @@ public sealed class MinecraftApiService
                     int pct = 8 + (int)(rec * 22 / tot.Value);
                     progress.Report((pct, $"{(rec / 1048576.0):F1} / {(tot.Value / 1048576.0):F1} MB"));
                 }
-            }, ct);
+            }, ct, Number(client, "size"));
         }
 
         // 2. Collect Libraries matching Windows x64 rules
-        var libTasks = new List<(string Url, string Path, string? Sha1, bool IsNative)>();
+        var libTasks = new List<(string Url, string Path, string? Sha1, long Size, bool IsNative)>();
         if (root.TryGetProperty("libraries", out var libs))
         {
             foreach (var lib in libs.EnumerateArray())
@@ -182,7 +206,7 @@ public sealed class MinecraftApiService
                         string? sha1 = art.TryGetProperty("sha1", out var s) ? s.GetString() : null;
                         if (!string.IsNullOrWhiteSpace(pathRel) && !string.IsNullOrWhiteSpace(url))
                         {
-                            libTasks.Add((url, Path.Combine(_storage.LibrariesDir, pathRel.Replace('/', Path.DirectorySeparatorChar)), sha1, false));
+                            libTasks.Add((url, LibraryDestination(pathRel), sha1, Number(art, "size"), false));
                         }
                     }
                     if (lib.TryGetProperty("natives", out var nat) && nat.TryGetProperty("windows", out var winKey)
@@ -194,7 +218,7 @@ public sealed class MinecraftApiService
                         string? sha1 = natArt.TryGetProperty("sha1", out var s) ? s.GetString() : null;
                         if (!string.IsNullOrWhiteSpace(pathRel) && !string.IsNullOrWhiteSpace(url))
                         {
-                            libTasks.Add((url, Path.Combine(_storage.LibrariesDir, pathRel.Replace('/', Path.DirectorySeparatorChar)), sha1, true));
+                            libTasks.Add((url, LibraryDestination(pathRel), sha1, Number(natArt, "size"), true));
                         }
                     }
                 }
@@ -202,14 +226,14 @@ public sealed class MinecraftApiService
         }
 
         // Parallel library download with bounded concurrency
-        using var sem = new SemaphoreSlim(24);
+        using var sem = new SemaphoreSlim(12);
         int doneLibs = 0;
         await Task.WhenAll(libTasks.Select(async lt =>
         {
             await sem.WaitAsync(ct);
             try
             {
-                await DownloadMirroredFileAsync(lt.Url, lt.Path, lt.Sha1, mirror, null, ct);
+                await DownloadMirroredFileAsync(lt.Url, lt.Path, lt.Sha1, mirror, null, ct, lt.Size);
                 if (lt.IsNative && File.Exists(lt.Path))
                 {
                     ExtractNatives(lt.Path, nativesDir);
@@ -228,7 +252,7 @@ public sealed class MinecraftApiService
             string idxUrl = ai.GetProperty("url").GetString() ?? "";
             string? idxSha1 = ai.TryGetProperty("sha1", out var s) ? s.GetString() : null;
             string idxPath = Path.Combine(_storage.AssetsDir, "indexes", $"{idxId}.json");
-            await DownloadMirroredFileAsync(idxUrl, idxPath, idxSha1, mirror, null, ct);
+            await DownloadMirroredFileAsync(idxUrl, idxPath, idxSha1, mirror, null, ct, Number(ai, "size"));
 
             using var idxDoc = JsonDocument.Parse(await File.ReadAllTextAsync(idxPath, ct));
             if (idxDoc.RootElement.TryGetProperty("objects", out var objects))
@@ -241,7 +265,7 @@ public sealed class MinecraftApiService
             InstanceManager.IsFileName(Text(logFile, "id")))
         {
             await DownloadMirroredFileAsync(Text(logFile, "url"),
-                Path.Combine(_storage.AssetsDir, "log_configs", Text(logFile, "id")), Text(logFile, "sha1"), mirror, null, ct);
+                Path.Combine(_storage.AssetsDir, "log_configs", Text(logFile, "id")), Text(logFile, "sha1"), mirror, null, ct, Number(logFile, "size"));
         }
 
         // 4. Optional Fabric Loader profile overlay via meta.fabricmc.net
@@ -249,9 +273,9 @@ public sealed class MinecraftApiService
         {
             progress.Report((98, "合成 Fabric 配置"));
             string fabUrl = $"https://meta.fabricmc.net/v2/versions/loader/{Uri.EscapeDataString(mcVersion)}/{Uri.EscapeDataString(fabricLoaderVer)}/profile/json";
-            string fabJson = await _dl.GetDownloadTextAsync([fabUrl], ct);
+            string fabJson = await CatalogTextAsync(fabUrl, ct, mirror);
             using var profile = JsonDocument.Parse(fabJson);
-            await EnsureLoaderLibrariesAsync(profile.RootElement, ct);
+            await EnsureLoaderLibrariesAsync(profile.RootElement, ct, mirror);
             await File.WriteAllTextAsync(Path.Combine(verDir, $"{safeName}.fabric.json"), fabJson, ct);
         }
         await File.WriteAllTextAsync(verJsonPath, verJsonText, ct);
@@ -269,26 +293,9 @@ public sealed class MinecraftApiService
         }
 
         int completed = 0;
-        int mirrorFailures = 0;
         long nextReport = Environment.TickCount64 + 200;
         var reportLock = new object();
         progress.Report((65, $"资源文件 0/{assets.Count}"));
-
-        void TrackMirrorFailure(string host, Exception error)
-        {
-            if (!DownloadRoutes.IsMirror(host) ||
-                error is not (InvalidDataException or TimeoutException or HttpRequestException
-                {
-                    HttpRequestError: HttpRequestError.SecureConnectionError or HttpRequestError.NameResolutionError or HttpRequestError.ConnectionError
-                } or HttpRequestException
-                {
-                    StatusCode: HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable
-                }))
-                return;
-
-            if (Interlocked.Increment(ref mirrorFailures) == 2)
-                _storage.Log($"资源镜像 [{host}] 多次遇到连接或校验问题，本次剩余资源文件使用官方源");
-        }
 
         await Parallel.ForEachAsync(assets,
             new ParallelOptions { MaxDegreeOfParallelism = AssetDownloadConcurrency, CancellationToken = ct },
@@ -297,9 +304,8 @@ public sealed class MinecraftApiService
                 var (hash, size) = asset;
                 string url = $"https://resources.download.minecraft.net/{hash[..2]}/{hash}";
                 string destination = Path.Combine(_storage.AssetsDir, "objects", hash[..2], hash);
-                string source = Volatile.Read(ref mirrorFailures) >= 2 ? "官方源" : mirror;
-                await _dl.DownloadVerifiedFileAsync(DownloadRoutes.Files(url, source, true),
-                    destination, hash, null, size, null, token, TrackMirrorFailure);
+                await _dl.DownloadVerifiedFileAsync(DownloadRoutes.Files(url, mirror, true),
+                    destination, hash, null, size, null, token);
 
                 lock (reportLock)
                 {
@@ -313,20 +319,51 @@ public sealed class MinecraftApiService
             });
     }
 
-    internal async Task EnsureLoaderLibrariesAsync(JsonElement profile, CancellationToken ct)
+    internal async Task EnsureLoaderLibrariesAsync(JsonElement profile, CancellationToken ct, string? source = null)
     {
         if (!profile.TryGetProperty("libraries", out var libraries)) return;
         await Task.WhenAll(libraries.EnumerateArray().Where(IsLibraryAllowedOnWindows).Select(async library =>
         {
             string path = LibraryArtifactPath(library);
-            string destination = Path.Combine(_storage.LibrariesDir, path);
-            if (File.Exists(destination)) return;
+            string destination = LibraryDestination(path);
             string repository = library.TryGetProperty("url", out var url)
                 ? url.GetString() ?? "https://libraries.minecraft.net/" : "https://libraries.minecraft.net/";
             if (!Uri.TryCreate(repository, UriKind.Absolute, out var origin) || origin.Scheme != Uri.UriSchemeHttps)
                 throw new InvalidDataException("加载器库地址无效");
-            await _dl.DownloadFileWithSha1Async(repository.TrimEnd('/') + "/" + path, destination, null, null, ct);
+            string artifactUrl = repository.TrimEnd('/') + "/" + path.Replace('\\', '/');
+            string sha1 = Text(library, "sha1"), sha256 = Text(library, "sha256"), sha512 = Text(library, "sha512");
+            long size = Number(library, "size");
+            if (library.TryGetProperty("downloads", out var ds) && ds.TryGetProperty("artifact", out var art))
+            {
+                artifactUrl = Text(art, "url", artifactUrl);
+                sha1 = Text(art, "sha1", sha1);
+                sha256 = Text(art, "sha256", sha256);
+                sha512 = Text(art, "sha512", sha512);
+                if (Number(art, "size") > 0) size = Number(art, "size");
+            }
+            bool verified = sha1.Length > 0 || sha256.Length > 0 || sha512.Length > 0;
+            if (!verified && new Uri(artifactUrl).Host == "maven.fabricmc.net")
+            {
+                string checksumUrl = artifactUrl + ".sha1";
+                string checksum = await CachedTextAsync(checksumUrl, [checksumUrl], text =>
+                {
+                    if (!System.Text.RegularExpressions.Regex.IsMatch(text.Trim(), @"^[a-fA-F0-9]{40}(?:\s|$)"))
+                        throw new InvalidDataException("Fabric Maven SHA-1 无效");
+                }, ct);
+                sha1 = checksum.Trim()[..40];
+                verified = true;
+            }
+            if (!verified && size == 0 && File.Exists(destination)) return;
+            await _dl.DownloadVerifiedFileAsync(DownloadRoutes.Files(artifactUrl, source ?? SelectSource(), verified),
+                destination, sha1, sha512, size, null, ct, sha256: sha256);
         }));
+    }
+
+    private string LibraryDestination(string path)
+    {
+        if (Path.IsPathRooted(path) || path.Replace('\\', '/').Split('/').Any(part => !InstanceManager.IsFileName(part)))
+            throw new InvalidDataException("依赖库清单包含无效的文件路径");
+        return Path.Combine(_storage.LibrariesDir, path.Replace('/', Path.DirectorySeparatorChar));
     }
 
     internal static string LibraryArtifactPath(JsonElement library)
@@ -391,7 +428,7 @@ public sealed class MinecraftApiService
         string facets = Uri.EscapeDataString(JsonSerializer.Serialize(facetGroups));
         string index = sortNewest ? "newest" : (term.Length > 0 && sortBy.Equals("relevance", StringComparison.OrdinalIgnoreCase) ? "relevance" : "downloads");
         string url = $"https://api.modrinth.com/v2/search?limit={Math.Clamp(limit, 10, 50)}&offset={Math.Max(0, offset)}&index={index}&facets={facets}&query={Uri.EscapeDataString(term)}";
-        using var doc = JsonDocument.Parse(await _http.GetStringAsync(url, ct));
+        using var doc = JsonDocument.Parse(await CatalogTextAsync(url, ct));
         int totalHits = (int)Number(doc.RootElement, "total_hits");
         var list = Array(doc.RootElement, "hits").Select(hit =>
             CreateModrinthCatalogItem(category, projectType, hit, Text(hit, "project_id"), Strings(hit, "categories")
@@ -411,7 +448,7 @@ public sealed class MinecraftApiService
         foreach (string[] batch in ids.Chunk(50))
         {
             string parameter = Uri.EscapeDataString(JsonSerializer.Serialize(batch));
-            using var doc = JsonDocument.Parse(await _http.GetStringAsync($"https://api.modrinth.com/v2/projects?ids={parameter}", ct));
+            using var doc = JsonDocument.Parse(await CatalogTextAsync($"https://api.modrinth.com/v2/projects?ids={parameter}", ct));
             foreach (var project in doc.RootElement.EnumerateArray())
             {
                 string id = Text(project, "id");
@@ -477,7 +514,7 @@ public sealed class MinecraftApiService
         string category, string projectId, CancellationToken ct)
     {
         string path = $"https://api.modrinth.com/v2/project/{Uri.EscapeDataString(projectId)}";
-        var filesTask = _http.GetStringAsync(path + "/version", ct);
+        var filesTask = CatalogTextAsync(path + "/version", ct);
         Dictionary<string, object?> item;
         if (_searchProjects.TryGetValue((category, projectId), out var cached) && cached.Expires > DateTimeOffset.UtcNow)
             item = new Dictionary<string, object?>(cached.Item);
@@ -535,7 +572,7 @@ public sealed class MinecraftApiService
             foreach (string[] batch in ids.Chunk(50))
             {
                 string param = Uri.EscapeDataString(JsonSerializer.Serialize(batch));
-                using var doc = JsonDocument.Parse(await _http.GetStringAsync($"https://api.modrinth.com/v2/projects?ids={param}", ct));
+                using var doc = JsonDocument.Parse(await CatalogTextAsync($"https://api.modrinth.com/v2/projects?ids={param}", ct));
                 foreach (var proj in doc.RootElement.EnumerateArray())
                 {
                     string pid = Text(proj, "id");
@@ -595,7 +632,7 @@ public sealed class MinecraftApiService
         {
             try
             {
-                string json = await _http.GetStringAsync($"https://api.modrinth.com/v2/project/{Uri.EscapeDataString(cand)}", ct);
+                string json = await CatalogTextAsync($"https://api.modrinth.com/v2/project/{Uri.EscapeDataString(cand)}", ct);
                 using var doc = JsonDocument.Parse(json);
                 var proj = doc.RootElement;
                 if (Text(proj, "project_type") == "mod")
@@ -607,7 +644,7 @@ public sealed class MinecraftApiService
                     return item;
                 }
             }
-            catch { }
+            catch (Exception ex) when (!ct.IsCancellationRequested && ex is IOException or HttpRequestException or JsonException) { }
         }
 
         string searchTerm = !string.IsNullOrWhiteSpace(name) ? name : Path.GetFileNameWithoutExtension(fileName);
@@ -622,7 +659,7 @@ public sealed class MinecraftApiService
     private async Task<Dictionary<string, object?>> ReadModrinthProjectAsync(
         string category, string projectId, string path, CancellationToken ct)
     {
-        using var doc = JsonDocument.Parse(await _http.GetStringAsync(path, ct));
+        using var doc = JsonDocument.Parse(await CatalogTextAsync(path, ct));
         var project = doc.RootElement;
         string type = Text(project, "project_type");
         if (Category(type) != category && !Strings(project, "additional_project_types").Contains(ProjectType(category)))
@@ -641,24 +678,37 @@ public sealed class MinecraftApiService
 
     public async Task<Dictionary<string, List<Dictionary<string, object?>>>> FetchVersionLoaderBuildsAsync(string mcVersion, CancellationToken ct)
     {
-        var trees = new Dictionary<string, List<Dictionary<string, object?>>>();
+        string source = SelectSource();
+        var fabricTask = FetchFabricBuildsAsync(mcVersion, ct);
+        var neoForgeTask = FetchNeoForgeBuildsAsync(mcVersion, source, ct);
+        var forgeTask = FetchForgeBuildsAsync(mcVersion, source, ct);
+        var quiltTask = FetchQuiltBuildsAsync(mcVersion, ct);
+        var optiFineTask = FetchOptiFineBuildsAsync(mcVersion, ct);
 
-        async Task<List<Dictionary<string, object?>>> TryGetAsync(string url, Func<JsonDocument, List<Dictionary<string, object?>>> parser)
+        await Task.WhenAll(fabricTask, neoForgeTask, forgeTask, quiltTask, optiFineTask);
+
+        var trees = new Dictionary<string, List<Dictionary<string, object?>>>();
+        void AddLoader(string name, List<Dictionary<string, object?>> builds)
         {
-            try
-            {
-                using var req = new HttpRequestMessage(HttpMethod.Get, url);
-                req.Headers.UserAgent.ParseAdd("DCL-Launcher/1.0");
-                using var resp = await _http.SendAsync(req, ct);
-                if (!resp.IsSuccessStatusCode) return new();
-                using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
-                return parser(doc);
-            }
-            catch { return new(); }
+            if (builds.Count > 0)
+                trees[name] = [new() { ["mcVersion"] = mcVersion, ["title"] = $"{name} {mcVersion}", ["builds"] = builds }];
         }
 
-        var fabTask = TryGetAsync($"https://meta.fabricmc.net/v2/versions/loader/{Uri.EscapeDataString(mcVersion)}", doc =>
-            doc.RootElement.EnumerateArray().Take(35).Select(el =>
+        AddLoader("Fabric", fabricTask.Result);
+        AddLoader("NeoForge", neoForgeTask.Result);
+        AddLoader("Forge", forgeTask.Result);
+        AddLoader("Quilt", quiltTask.Result);
+        AddLoader("OptiFine", optiFineTask.Result);
+        return trees;
+    }
+
+    private async Task<List<Dictionary<string, object?>>> FetchFabricBuildsAsync(string mcVersion, CancellationToken ct)
+    {
+        try
+        {
+            string url = $"https://meta.fabricmc.net/v2/versions/loader/{Uri.EscapeDataString(mcVersion)}";
+            using var doc = JsonDocument.Parse(await CatalogTextAsync(url, ct));
+            return doc.RootElement.EnumerateArray().Take(35).Select(el =>
             {
                 string ver = el.GetProperty("loader").GetProperty("version").GetString() ?? "";
                 bool stable = el.GetProperty("loader").TryGetProperty("stable", out var st) && st.GetBoolean();
@@ -673,77 +723,288 @@ public sealed class MinecraftApiService
                     ["size"] = "Meta",
                     ["releaseType"] = stable ? "Release" : "Beta"
                 };
-            }).ToList());
-
-        var neoTask = TryGetAsync($"https://bmclapi2.bangbang93.com/neoforge/list/{Uri.EscapeDataString(mcVersion)}", doc =>
-            doc.RootElement.EnumerateArray().Reverse().Take(35).Select(el =>
-            {
-                string ver = el.TryGetProperty("version", out var v) ? (v.GetString() ?? "") : "";
-                return new Dictionary<string, object?>
-                {
-                    ["id"] = $"{mcVersion}-NeoForge-{ver}",
-                    ["title"] = $"NeoForge {ver}",
-                    ["file"] = $"neoforge-{ver}-installer.jar",
-                    ["versionNumber"] = ver,
-                    ["icon"] = "assets/mc-icons/loader-neoforge.png",
-                    ["updatedAgo"] = "BMCLAPI",
-                    ["size"] = "Installer",
-                    ["releaseType"] = ver.Contains("beta") ? "Beta" : "Release"
-                };
-            }).ToList());
-
-        var forgeTask = TryGetAsync($"https://bmclapi2.bangbang93.com/forge/minecraft/{Uri.EscapeDataString(mcVersion)}", doc =>
-            doc.RootElement.EnumerateArray().Reverse().Take(35).Select(el =>
-            {
-                string ver = el.TryGetProperty("version", out var v) ? (v.GetString() ?? "") : "";
-                return new Dictionary<string, object?>
-                {
-                    ["id"] = $"{mcVersion}-Forge-{ver}",
-                    ["title"] = $"Forge {ver}",
-                    ["file"] = $"forge-{mcVersion}-{ver}-installer.jar",
-                    ["versionNumber"] = ver,
-                    ["icon"] = "assets/mc-icons/loader-forge.png",
-                    ["updatedAgo"] = el.TryGetProperty("modified", out var mod) ? (mod.GetString() ?? "")[..Math.Min(10, (mod.GetString() ?? "").Length)] : "BMCLAPI",
-                    ["size"] = "Installer",
-                    ["releaseType"] = "Release"
-                };
-            }).ToList());
-
-        var ofTask = TryGetAsync($"https://bmclapi2.bangbang93.com/optifine/{Uri.EscapeDataString(mcVersion)}", doc =>
-            doc.RootElement.EnumerateArray().Take(25).Select(el =>
-            {
-                string type = el.TryGetProperty("type", out var t) ? (t.GetString() ?? "") : "";
-                string patch = el.TryGetProperty("patch", out var p) ? (p.GetString() ?? "") : "";
-                string ver = $"{type}_{patch}".Trim('_');
-                return new Dictionary<string, object?>
-                {
-                    ["id"] = $"{mcVersion}-OptiFine-{ver}",
-                    ["title"] = $"OptiFine {ver}",
-                    ["file"] = $"OptiFine_{mcVersion}_{ver}.jar",
-                    ["versionNumber"] = ver,
-                    ["icon"] = "assets/mc-icons/loader-optifine.png",
-                    ["updatedAgo"] = "BMCLAPI",
-                    ["size"] = "JAR",
-                    ["releaseType"] = patch.StartsWith("pre") ? "Beta" : "Release"
-                };
-            }).ToList());
-
-        await Task.WhenAll(fabTask, neoTask, forgeTask, ofTask);
-
-        void AddLoaderGroup(string ld, List<Dictionary<string, object?>> builds)
+            }).Where(b => !string.IsNullOrWhiteSpace(b["versionNumber"]?.ToString())).ToList();
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested && ex is IOException or HttpRequestException or JsonException or OperationCanceledException)
         {
-            if (builds.Count == 0) return;
-            trees[ld] = new List<Dictionary<string, object?>>
+            return [];
+        }
+    }
+
+    private async Task<List<Dictionary<string, object?>>> FetchNeoForgeBuildsAsync(string mcVersion, string source, CancellationToken ct)
+    {
+        if (VersionComparer.Compare(mcVersion, "1.20.1") < 0) return [];
+        bool officialOnly = source == "官方源";
+        string bmclUrl = $"https://bmclapi2.bangbang93.com/neoforge/list/{Uri.EscapeDataString(mcVersion)}";
+        if (!officialOnly)
+        {
+            try
             {
-                new() { ["mcVersion"] = mcVersion, ["title"] = $"{ld} {mcVersion}", ["builds"] = builds }
-            };
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                cts.CancelAfter(TimeSpan.FromSeconds(10));
+                string json = await CachedTextAsync(bmclUrl, [bmclUrl], text =>
+                {
+                    using var d = JsonDocument.Parse(text);
+                    if (d.RootElement.ValueKind != JsonValueKind.Array) throw new InvalidDataException("NeoForge 列表无效");
+                }, cts.Token);
+                using var doc = JsonDocument.Parse(json);
+                var builds = doc.RootElement.EnumerateArray()
+                    .Select(el => Text(el, "version"))
+                    .Where(v => v.Length > 0)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderByDescending(v => v, VersionComparer)
+                    .Take(40)
+                    .Select(ver => BuildNeoForgeEntry(mcVersion, ver))
+                    .ToList();
+                if (builds.Count > 0) return builds;
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested && ex is IOException or HttpRequestException or JsonException or OperationCanceledException) { }
         }
 
-        AddLoaderGroup("Forge", forgeTask.Result);
-        AddLoaderGroup("NeoForge", neoTask.Result);
-        AddLoaderGroup("Fabric", fabTask.Result);
-        AddLoaderGroup("OptiFine", ofTask.Result);
-        return trees;
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(10));
+            bool is1201 = mcVersion == "1.20.1";
+            string officialUrl = is1201
+                ? "https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/forge"
+                : "https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge";
+            string json = await CachedTextAsync(officialUrl, [officialUrl], text =>
+            {
+                using var d = JsonDocument.Parse(text);
+                if (!d.RootElement.TryGetProperty("versions", out var arr) || arr.ValueKind != JsonValueKind.Array)
+                    throw new InvalidDataException("NeoForge 官方列表无效");
+            }, cts.Token);
+            using var doc = JsonDocument.Parse(json);
+            var matched = new List<string>();
+            string? prefix = NeoForgeVersionPrefix(mcVersion);
+            foreach (var el in doc.RootElement.GetProperty("versions").EnumerateArray())
+            {
+                string raw = el.GetString() ?? "";
+                if (raw.Length == 0) continue;
+                if (is1201)
+                {
+                    if (raw.StartsWith("1.20.1-", StringComparison.Ordinal))
+                        matched.Add(raw["1.20.1-".Length..]);
+                }
+                else if (prefix != null && raw.StartsWith(prefix, StringComparison.Ordinal))
+                {
+                    matched.Add(raw);
+                }
+            }
+            return matched
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderByDescending(v => v, VersionComparer)
+                .Take(40)
+                .Select(ver => BuildNeoForgeEntry(mcVersion, ver))
+                .ToList();
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested && ex is IOException or HttpRequestException or JsonException or OperationCanceledException)
+        {
+            return [];
+        }
+    }
+
+    private static string? NeoForgeVersionPrefix(string mcVersion)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(mcVersion, @"^(\d+)\.(\d+)(?:\.(\d+))?$");
+        if (!m.Success) return null;
+        int major = int.Parse(m.Groups[1].Value);
+        int minor = int.Parse(m.Groups[2].Value);
+        int patch = m.Groups[3].Success ? int.Parse(m.Groups[3].Value) : 0;
+        if (major == 1) return $"{minor}.{patch}.";
+        return m.Groups[3].Success ? $"{major}.{minor}.{patch}." : $"{major}.{minor}.";
+    }
+
+    private static Dictionary<string, object?> BuildNeoForgeEntry(string mcVersion, string ver)
+    {
+        bool isBeta = ver.Contains("beta", StringComparison.OrdinalIgnoreCase) || ver.Contains("alpha", StringComparison.OrdinalIgnoreCase);
+        return new Dictionary<string, object?>
+        {
+            ["id"] = $"{mcVersion}-NeoForge-{ver}",
+            ["title"] = $"NeoForge {ver}",
+            ["file"] = $"neoforge-{ver}-installer.jar",
+            ["versionNumber"] = ver,
+            ["icon"] = "assets/mc-icons/loader-neoforge.png",
+            ["updatedAgo"] = isBeta ? "测试构建" : "官方安装器",
+            ["size"] = "Installer",
+            ["releaseType"] = isBeta ? "Beta" : "Release"
+        };
+    }
+
+    private async Task<List<Dictionary<string, object?>>> FetchForgeBuildsAsync(string mcVersion, string source, CancellationToken ct)
+    {
+        if (VersionComparer.Compare(mcVersion, "1.13") < 0) return [];
+        bool officialOnly = source == "官方源";
+        string bmclUrl = $"https://bmclapi2.bangbang93.com/forge/minecraft/{Uri.EscapeDataString(mcVersion)}";
+        if (!officialOnly)
+        {
+            try
+            {
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                cts.CancelAfter(TimeSpan.FromSeconds(10));
+                string json = await CachedTextAsync(bmclUrl, [bmclUrl], text =>
+                {
+                    using var d = JsonDocument.Parse(text);
+                    if (d.RootElement.ValueKind != JsonValueKind.Array) throw new InvalidDataException("Forge 列表无效");
+                }, cts.Token);
+                using var doc = JsonDocument.Parse(json);
+                var items = new List<(string Ver, string DateLabel)>();
+                foreach (var el in doc.RootElement.EnumerateArray())
+                {
+                    string ver = Text(el, "version");
+                    if (ver.Length == 0) continue;
+                    string modified = Text(el, "modified");
+                    string dateLabel = DateTimeOffset.TryParse(modified, out var dt)
+                        ? dt.ToLocalTime().ToString("yyyy/MM/dd")
+                        : "官方构建";
+                    items.Add((ver, dateLabel));
+                }
+                var builds = items
+                    .GroupBy(x => x.Ver, StringComparer.OrdinalIgnoreCase)
+                    .Select(g => g.Last())
+                    .OrderByDescending(x => x.Ver, VersionComparer)
+                    .Take(40)
+                    .Select(x => BuildForgeEntry(mcVersion, x.Ver, x.DateLabel))
+                    .ToList();
+                if (builds.Count > 0) return builds;
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested && ex is IOException or HttpRequestException or JsonException or OperationCanceledException) { }
+        }
+
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(10));
+            const string officialUrl = "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml";
+            string xml = await CachedTextAsync(officialUrl, [officialUrl], text =>
+            {
+                if (!text.Contains("<versions>", StringComparison.Ordinal))
+                    throw new InvalidDataException("Forge 官方元数据无效");
+            }, cts.Token);
+            string pattern = $@"<version>{System.Text.RegularExpressions.Regex.Escape(mcVersion)}-([^<]+)</version>";
+            var builds = System.Text.RegularExpressions.Regex.Matches(xml, pattern)
+                .Select(m => m.Groups[1].Value.Trim())
+                .Where(v => v.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderByDescending(v => v, VersionComparer)
+                .Take(40)
+                .Select(ver => BuildForgeEntry(mcVersion, ver, "官方安装器"))
+                .ToList();
+            return builds;
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested && ex is IOException or HttpRequestException or JsonException or OperationCanceledException)
+        {
+            return [];
+        }
+    }
+
+    private static Dictionary<string, object?> BuildForgeEntry(string mcVersion, string ver, string dateLabel) =>
+        new()
+        {
+            ["id"] = $"{mcVersion}-Forge-{ver}",
+            ["title"] = $"Forge {ver}",
+            ["file"] = $"forge-{mcVersion}-{ver}-installer.jar",
+            ["versionNumber"] = ver,
+            ["icon"] = "assets/mc-icons/loader-forge.png",
+            ["updatedAgo"] = dateLabel,
+            ["size"] = "Installer",
+            ["releaseType"] = "Release"
+        };
+
+    private async Task<List<Dictionary<string, object?>>> FetchQuiltBuildsAsync(string mcVersion, CancellationToken ct)
+    {
+        if (VersionComparer.Compare(mcVersion, "1.14") < 0) return [];
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(7));
+            string url = $"https://meta.quiltmc.org/v3/versions/loader/{Uri.EscapeDataString(mcVersion)}";
+            string json = await CachedTextAsync(url, [url], text =>
+            {
+                using var d = JsonDocument.Parse(text);
+                if (d.RootElement.ValueKind != JsonValueKind.Array) throw new InvalidDataException("Quilt 列表无效");
+            }, cts.Token);
+            using var doc = JsonDocument.Parse(json);
+            return doc.RootElement.EnumerateArray().Take(35).Select(el =>
+            {
+                string ver = el.TryGetProperty("loader", out var ld) ? Text(ld, "version") : "";
+                bool isBeta = ver.Contains("beta", StringComparison.OrdinalIgnoreCase) || ver.Contains("alpha", StringComparison.OrdinalIgnoreCase);
+                return new Dictionary<string, object?>
+                {
+                    ["id"] = $"{mcVersion}-Quilt-{ver}",
+                    ["title"] = $"Quilt Loader {ver}",
+                    ["file"] = $"quilt-loader-{ver}",
+                    ["versionNumber"] = ver,
+                    ["icon"] = "assets/mc-icons/loader-fabric.png",
+                    ["updatedAgo"] = isBeta ? "测试构建" : "推荐稳定版",
+                    ["size"] = "Meta",
+                    ["releaseType"] = isBeta ? "Beta" : "Release"
+                };
+            }).Where(b => !string.IsNullOrWhiteSpace(b["versionNumber"]?.ToString())).ToList();
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested && ex is IOException or HttpRequestException or JsonException or OperationCanceledException)
+        {
+            return [];
+        }
+    }
+
+    private async Task<List<Dictionary<string, object?>>> FetchOptiFineBuildsAsync(string mcVersion, CancellationToken ct)
+    {
+        if (VersionComparer.Compare(mcVersion, "1.7.10") < 0) return [];
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(10));
+            string url = $"https://bmclapi2.bangbang93.com/optifine/{Uri.EscapeDataString(mcVersion)}";
+            string json = await CachedTextAsync(url, [url], text =>
+            {
+                using var d = JsonDocument.Parse(text);
+                if (d.RootElement.ValueKind != JsonValueKind.Array) throw new InvalidDataException("OptiFine 列表无效");
+            }, cts.Token);
+            using var doc = JsonDocument.Parse(json);
+            var raw = new List<(string Type, string Patch, string File, string Forge, bool IsPreview)>();
+            foreach (var el in doc.RootElement.EnumerateArray())
+            {
+                string type = Text(el, "type");
+                string patch = Text(el, "patch");
+                if (type.Length == 0 || patch.Length == 0) continue;
+                string file = Text(el, "filename", $"OptiFine_{mcVersion}_{type}_{patch}.jar");
+                string forge = Text(el, "forge");
+                bool isPreview = file.StartsWith("preview_", StringComparison.OrdinalIgnoreCase) ||
+                    patch.Contains("pre", StringComparison.OrdinalIgnoreCase);
+                raw.Add((type, patch, file, forge, isPreview));
+            }
+            return raw
+                .OrderBy(x => x.IsPreview)
+                .ThenByDescending(x => $"{x.Type}_{x.Patch}", VersionComparer)
+                .Take(35)
+                .Select(x =>
+                {
+                    string ver = $"{x.Type}_{x.Patch}";
+                    string compat = x.Forge.Length > 0 && !x.Forge.Contains("N/A", StringComparison.OrdinalIgnoreCase)
+                        ? $"兼容 {x.Forge}"
+                        : (x.IsPreview ? "预览构建" : "推荐稳定版");
+                    return new Dictionary<string, object?>
+                    {
+                        ["id"] = $"{mcVersion}-OptiFine-{ver}",
+                        ["title"] = $"OptiFine {ver}",
+                        ["file"] = x.File,
+                        ["versionNumber"] = ver,
+                        ["optifineType"] = x.Type,
+                        ["optifinePatch"] = x.Patch,
+                        ["icon"] = "assets/mc-icons/loader-optifine.png",
+                        ["updatedAgo"] = compat,
+                        ["size"] = "Installer",
+                        ["releaseType"] = x.IsPreview ? "Beta" : "Release"
+                    };
+                })
+                .ToList();
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested && ex is IOException or HttpRequestException or JsonException or OperationCanceledException)
+        {
+            return [];
+        }
     }
 
     public static bool IsLibraryAllowedOnWindows(JsonElement lib)

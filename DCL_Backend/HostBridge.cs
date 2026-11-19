@@ -34,7 +34,7 @@ public sealed class HostBridge
         return _cfg.AlwaysOnTop;
     }
 
-    private string DownloadSource => _cfg.AutoMirror ? "最优" : _cfg.MirrorSource;
+    private string DownloadSource => _cfg.AutoMirror ? "最优/" + _cfg.MirrorSource : _cfg.MirrorSource;
 
     // 发行前填入在 Azure / Microsoft Entra 注册并获 Mojang 审批通过的公共客户端 Application (client) ID（UUID）
     private const string DefaultMicrosoftClientId = "";
@@ -43,7 +43,7 @@ public sealed class HostBridge
         FirstNonEmpty(Environment.GetEnvironmentVariable("DCL_MICROSOFT_CLIENT_ID"), _cfg.MicrosoftClientId, DefaultMicrosoftClientId);
     private string CurseForgeKey =>
         FirstNonEmpty(Environment.GetEnvironmentVariable("DCL_CURSEFORGE_API_KEY"), _cfg.CurseForgeApiKey, BuildSecrets.CurseForgeApiKey);
-    private string CurseForgeApiRoute => "auto";
+    private string CurseForgeApiRoute => CurseForgeService.NormalizeRoute(_cfg.CurseForgeApiRoute);
 
     private static string FirstNonEmpty(params string?[] values) =>
         values.Select(v => (v ?? "").Trim()).FirstOrDefault(v => v.Length > 0) ?? "";
@@ -59,22 +59,18 @@ public sealed class HostBridge
     private bool _microsoftStarting;
     private (string Id, string VerificationUri, CancellationTokenSource Cancellation, Task<AccountEntry> Task)? _microsoftLogin;
 
-    private readonly List<(string Name, string Url, double Avail, int Bw)> _mirrorDefs = new()
-    {
-        ("BMCLAPI", "https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json", 0.992, 420),
-        ("MCIM", "https://mod.mcimirror.top/", 0.985, 310),
-        ("官方源", "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json", 0.995, 140)
-    };
-    private Dictionary<string, int> _mirrorPings = new()
-    {
-        ["BMCLAPI"] = 28,
-        ["MCIM"] = 42,
-        ["官方源"] = 185
-    };
+    private readonly (string Name, string Url)[] _mirrorDefs =
+    [
+        ("BMCLAPI", "https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json"),
+        ("MCIM", "https://mod.mcimirror.top/modrinth/v2/project/sodium"),
+        ("官方源", "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json")
+    ];
+    private readonly ConcurrentDictionary<string, int> _mirrorPings = new();
+    private readonly ConcurrentDictionary<string, long> _partialSearchToastAt = new(StringComparer.OrdinalIgnoreCase);
 
     public event Action<string, object?>? PushEvent;
 
-    public HostBridge(StorageService storage, HttpClient? http = null)
+    public HostBridge(StorageService storage, HttpClient? http = null, bool startOnlineServices = true)
     {
         _storage = storage;
         _http = http ?? new HttpClient(new SocketsHttpHandler
@@ -102,11 +98,18 @@ public sealed class HostBridge
         _packInstaller = new ModpackInstaller(_storage, _dlMgr, _mcApi, _curseForge);
 
         _cfg = _storage.LoadConfig();
+        _dlMgr.RestoreQueue(ExecuteJobAsync);
+        _mcApi.SelectSource = () => DownloadSource;
+        _curseForge.SelectSource = () => DownloadSource;
         _dlMgr.TasksChanged += () => PushEvent?.Invoke("download_updated", _dlMgr.GetTasksSnapshot());
 
+        _catalogVersions = _mcApi.CachedVersions();
         RefreshLocalWorkspace();
-        _ = BackgroundSyncOnlineCatalogAsync();
-        _ = RunPeriodicMirrorProbeLoopAsync();
+        if (startOnlineServices)
+        {
+            _ = BackgroundSyncOnlineCatalogAsync();
+            _ = RunPeriodicMirrorProbeLoopAsync();
+        }
     }
 
     private async Task RunPeriodicMirrorProbeLoopAsync()
@@ -114,7 +117,7 @@ public sealed class HostBridge
         try
         {
             // Initial probe shortly after WebView attaches so live RTT & auto-switch emit cleanly
-            await Task.Delay(3500);
+            await Task.Delay(1200);
             while (true)
             {
                 await ProbeMirrorsAndMaybeSwitchAsync(CancellationToken.None);
@@ -144,9 +147,9 @@ public sealed class HostBridge
             if (!string.Equals(best, _cfg.MirrorSource, StringComparison.OrdinalIgnoreCase))
             {
                 int curPing = _mirrorPings.GetValueOrDefault(_cfg.MirrorSource, 9999);
-                double curScore = ScoreMirror(_mirrorDefs.First(m => m.Name == _cfg.MirrorSource));
+                double curScore = _mirrorDefs.Any(m => m.Name == _cfg.MirrorSource) ? ScoreMirror(_mirrorDefs.First(m => m.Name == _cfg.MirrorSource)) : 99999;
                 double bestScore = ScoreMirror(_mirrorDefs.First(m => m.Name == best));
-                if (curPing >= 1200 || bestScore + 12.0 < curScore)
+                if (_mirrorPings.GetValueOrDefault(best, 9999) < 9999 && (curPing >= 1200 || bestScore + 12.0 < curScore))
                 {
                     _cfg.MirrorSource = best;
                     _storage.SaveConfig(_cfg);
@@ -159,11 +162,12 @@ public sealed class HostBridge
         return dto;
     }
 
-    private double ScoreMirror((string Name, string Url, double Avail, int Bw) m)
+    private double ScoreMirror((string Name, string Url) m)
     {
-        int ms = _mirrorPings.GetValueOrDefault(m.Name, 500);
-        double penalty = ms >= 2500 ? 3000 : (1 - m.Avail) * 1000;
-        return ms + penalty - m.Bw * 0.04;
+        int ping = _mirrorPings.GetValueOrDefault(m.Name, 9999);
+        if (ping >= 9999) return 99999;
+        var sample = _dlMgr.Metrics(m.Url);
+        return ping + (1 - sample.Available) * 1000;
     }
 
     private object BuildMirrorSnapshotDto(bool switched)
@@ -176,9 +180,9 @@ public sealed class HostBridge
             mirrors = _mirrorDefs.Select(m => new
             {
                 name = m.Name,
-                pingMs = _mirrorPings.GetValueOrDefault(m.Name, 80),
-                availability = m.Avail,
-                bandwidthMbps = m.Bw,
+                pingMs = _mirrorPings.TryGetValue(m.Name, out int p) ? p : -1,
+                availability = Math.Round(_dlMgr.Metrics(m.Url).Available, 3),
+                bandwidthMbps = Math.Round(_dlMgr.Metrics(m.Url).Mbps, 1),
                 score = Math.Round(ScoreMirror(m), 2)
             }).ToList()
         };
@@ -250,22 +254,6 @@ public sealed class HostBridge
         try
         {
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-            // Ping mirrors in parallel
-            var pingTasks = _mirrorDefs.Select(async m =>
-            {
-                int ms = await _dlMgr.PingHostAsync(m.Url, cts.Token);
-                return (m.Name, ms);
-            });
-            foreach (var res in await Task.WhenAll(pingTasks))
-            {
-                _mirrorPings[res.Name] = res.ms;
-            }
-            if (_cfg.AutoMirror)
-            {
-                _cfg.MirrorSource = PickOptimalMirror();
-                _storage.SaveConfig(_cfg);
-            }
-
             // Resource catalogs load on demand when their pages are opened.
             _catalogVersions = await _mcApi.FetchVersionManifestAsync(DownloadSource, cts.Token);
 
@@ -300,10 +288,10 @@ public sealed class HostBridge
             mirrors = _mirrorDefs.Select(m => new
             {
                 name = m.Name,
-                pingMs = _mirrorPings.GetValueOrDefault(m.Name, 80),
-                availability = m.Avail,
-                bandwidthMbps = m.Bw,
-                score = Math.Round(_mirrorPings.GetValueOrDefault(m.Name, 80) + (1 - m.Avail) * 1000 - m.Bw * 0.04, 2)
+                pingMs = _mirrorPings.TryGetValue(m.Name, out int p) ? p : -1,
+                availability = Math.Round(_dlMgr.Metrics(m.Url).Available, 3),
+                bandwidthMbps = Math.Round(_dlMgr.Metrics(m.Url).Mbps, 1),
+                score = Math.Round(ScoreMirror(m), 2)
             }),
             downloadTasks = _dlMgr.GetTasksSnapshot(),
             hasUnseenDownloadBall = _hasUnseenDownloadBall,
@@ -515,8 +503,29 @@ public sealed class HostBridge
                 string id = GetStr(payload, "id");
                 var inst = _instances.FirstOrDefault(i => i.Id == id);
                 if (inst == null) return null;
-                inst.IconId = GetStr(payload, "iconId", "grass");
-                inst.CustomIcon = null;
+                string iconId = GetStr(payload, "iconId", "grass");
+                if (iconId == "__pack__" && !string.IsNullOrWhiteSpace(inst.PackIcon))
+                {
+                    inst.CustomIcon = inst.PackIcon;
+                }
+                else
+                {
+                    inst.IconId = iconId;
+                    inst.CustomIcon = null;
+                }
+                SaveSingleInstance(inst);
+                return inst;
+            }
+
+            case "rename_instance":
+            {
+                string id = GetStr(payload, "id");
+                var inst = _instances.FirstOrDefault(i => i.Id == id);
+                if (inst == null) return null;
+                string nextName = GetStr(payload, "name").Trim();
+                if (nextName.Length == 0) throw new ArgumentException("版本名称不能为空。");
+                if (nextName.Length > 80) nextName = nextName[..80].Trim();
+                inst.Name = nextName;
                 SaveSingleInstance(inst);
                 return inst;
             }
@@ -648,27 +657,11 @@ public sealed class HostBridge
                     targetInstallDir = jFolder.Path;
                 }
                 int featureVer = int.TryParse(offId.Replace("off-", ""), out int fv) ? fv : 21;
-                var task = _dlMgr.Enqueue(
-                    $"Java {featureVer} ({vendorLabel})",
+                var task = _dlMgr.QueueJob($"Java {featureVer} ({vendorLabel})",
                     targetInstallDir != null ? $"安装至 {targetInstallDir}" : $"{vendorLabel} 安装包",
-                    "assets/mc-icons/command.png",
-                    vendorLabel,
-                    "~190 MB",
-                    async (entry, prog, ct) =>
-                    {
-                        prog.Report((5, $"查询 {vendorLabel} 下载信息..."));
-                        var (url, fileName) = await _javaMgr.ResolveVendorJavaDownloadAsync(vendorId, featureVer, ct);
-                        string zipPath = Path.Combine(_storage.CacheDir, "java", fileName);
-                        await _dlMgr.DownloadFileWithSha1Async(url, zipPath, null, (rec, tot) =>
-                        {
-                            if (tot > 0) prog.Report((10 + (int)(rec * 75 / tot.Value), $"{(rec / 1048576.0):F1}/{(tot.Value / 1048576.0):F1} MB"));
-                        }, ct);
-                        prog.Report((90, "解压运行时..."));
-                        await _javaMgr.ExtractJavaArchiveAsync(zipPath, featureVer, ct, targetInstallDir);
-                        RefreshLocalWorkspace();
-                        PushEvent?.Invoke("workspace_refreshed", BuildStateDto());
-                    });
-                if (!string.IsNullOrWhiteSpace(folderToken) && _javaInstallFolder?.Token == folderToken) _javaInstallFolder = null;
+                    "assets/mc-icons/command.png", vendorLabel, "~190 MB",
+                    new("java", Target: targetInstallDir ?? "", Vendor: vendorId, Major: featureVer, Label: vendorLabel, Mirror: DownloadSource),
+                    $"java:{Path.GetFullPath(targetInstallDir ?? _storage.RuntimeJavaDir).ToUpperInvariant()}:{featureVer}");
                 _hasUnseenDownloadBall = true;
                 return new { task, javas = _javas };
             }
@@ -799,7 +792,16 @@ public sealed class HostBridge
                     }
                     var vItem = _catalogVersions.FirstOrDefault(v => string.Equals(v["id"]?.ToString(), id, StringComparison.OrdinalIgnoreCase));
                     using var detailTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-                    var trees = await _mcApi.FetchVersionLoaderBuildsAsync(id, detailTimeout.Token);
+                    var trees = new Dictionary<string, List<Dictionary<string, object?>>>();
+                    if (vItem?.GetValueOrDefault("loaders") is string[] { Length: > 0 })
+                    {
+                        try { trees = await _mcApi.FetchVersionLoaderBuildsAsync(id, detailTimeout.Token); }
+                        catch (Exception ex) when (ex is IOException or HttpRequestException or OperationCanceledException)
+                        {
+                            _storage.Log($"加载器构建目录暂时不可用：{ex.Message}");
+                            PushEvent?.Invoke("toast", "加载器构建目录暂时不可用，仍可安装原版。");
+                        }
+                    }
                     return new Dictionary<string, object?>
                     {
                         ["catKey"] = "versions",
@@ -825,7 +827,7 @@ public sealed class HostBridge
             {
                 string category = GetStr(payload, "catKey");
                 _ = ResourceFolder(category);
-                var (_, files) = await GetResourceAsync(category, GetStr(payload, "projectId"));
+                var (_, files) = await GetResourceAsync(category, GetStr(payload, "projectId"), GetStr(payload, "buildId"));
                 var builds = DownloadableResourceFiles(files, category, GetStr(payload, "buildId"));
                 if (builds.Length == 0) throw new InvalidOperationException("该资源没有可下载的构建，或作者限制了第三方下载。");
                 return _instances.Select(instance => new
@@ -857,8 +859,30 @@ public sealed class HostBridge
                 string mirror = DownloadSource;
                 if (installType == "version" && !string.IsNullOrWhiteSpace(mcVersion))
                 {
-                    if (ResourceCatalog.Strings(payload, "loaders").Any(loader => loader != "Fabric"))
-                        throw new InvalidOperationException("此版本安装器目前支持原版和 Fabric。");
+                    var requestedLoaders = ResourceCatalog.Strings(payload, "loaders");
+                    bool wantsOptiFine = requestedLoaders.Contains("OptiFine", StringComparer.OrdinalIgnoreCase);
+                    var modLoaders = requestedLoaders.Where(l => !l.Equals("OptiFine", StringComparison.OrdinalIgnoreCase)).ToArray();
+                    if (modLoaders.Length > 1)
+                        throw new InvalidOperationException("同一版本仅支持选择一个模组加载器。");
+                    if (wantsOptiFine && modLoaders.Length == 1 && !modLoaders[0].Equals("Forge", StringComparison.OrdinalIgnoreCase))
+                        throw new InvalidOperationException($"OptiFine 仅支持单独安装或与 Forge 组合，不兼容 {modLoaders[0]}。");
+
+                    string loaderKind = GetStr(payload, "loaderKind");
+                    string loaderVer = GetStr(payload, "loaderVersion");
+                    string optifineType = GetStr(payload, "optifineType");
+                    string optifinePatch = GetStr(payload, "optifinePatch");
+                    string optifineFile = GetStr(payload, "optifineFile");
+                    if (loaderKind.Length == 0)
+                    {
+                        string fabricFallback = GetStr(payload, "fabricVersion");
+                        if (modLoaders.Length == 1) loaderKind = modLoaders[0];
+                        else if (wantsOptiFine) loaderKind = "OptiFine";
+                        else if (fabricFallback.Length > 0) loaderKind = "Fabric";
+                        if (loaderVer.Length == 0) loaderVer = fabricFallback;
+                    }
+                    if (loaderKind.Length > 0 && loaderKind is not ("Fabric" or "NeoForge" or "Forge" or "Quilt" or "OptiFine"))
+                        throw new InvalidOperationException($"暂不支持独立安装 {loaderKind}，目前支持原版、Fabric、NeoForge、Forge、Quilt 与 OptiFine。");
+
                     string? verJsonUrl = _catalogVersions
                         .FirstOrDefault(v => string.Equals(v["id"]?.ToString(), mcVersion, StringComparison.OrdinalIgnoreCase))
                         ?.GetValueOrDefault("url")?.ToString();
@@ -871,19 +895,41 @@ public sealed class HostBridge
                     if (string.IsNullOrWhiteSpace(verJsonUrl) || !InstanceManager.IsFileName(mcVersion))
                         throw new InvalidOperationException($"未找到版本 {mcVersion} 的官方清单");
 
-                    string fabricLoader = GetStr(payload, "fabricVersion");
-                    if (fabricLoader.Length == 0 && ResourceCatalog.Strings(payload, "loaders").Contains("Fabric"))
-                        throw new ArgumentException("请选择一个 Fabric 构建");
-                    if (fabricLoader.Length > 0 && !InstanceManager.IsFileName(fabricLoader))
-                        throw new ArgumentException("无效的 Fabric 版本");
-                    string instFolderName = fabricLoader.Length > 0 ? $"fabric-loader-{fabricLoader}-{mcVersion}" :
-                        File.Exists(Path.Combine(_storage.GameDirectory(mcVersion), $"{mcVersion}.fabric.json")) ? $"{mcVersion}-vanilla" : mcVersion;
-                    var task = _dlMgr.Enqueue(name, sub, icon, mirror, size, async (_, prog, ct) =>
+                    if (loaderKind.Length > 0 && loaderKind != "OptiFine")
                     {
-                        await _mcApi.InstallVanillaOrFabricAsync(mcVersion, verJsonUrl, instFolderName, fabricLoader, mirror, prog, ct);
-                        RefreshLocalWorkspace();
-                        PushEvent?.Invoke("workspace_refreshed", BuildStateDto());
-                    });
+                        if (loaderVer.Length == 0)
+                            throw new ArgumentException($"请选择一个 {loaderKind} 构建");
+                        if (!InstanceManager.IsFileName(loaderVer))
+                            throw new ArgumentException($"无效的 {loaderKind} 版本");
+                    }
+                    string optifineSpec = "";
+                    string optifineTag = "";
+                    if (wantsOptiFine || loaderKind == "OptiFine")
+                    {
+                        if (optifineType.Length == 0 || optifinePatch.Length == 0)
+                            throw new ArgumentException("请选择一个 OptiFine 构建");
+                        if (!InstanceManager.IsFileName(optifineType) || !InstanceManager.IsFileName(optifinePatch))
+                            throw new ArgumentException("无效的 OptiFine 版本");
+                        optifineTag = $"{optifineType}_{optifinePatch}";
+                        optifineSpec = $"{optifineType}|{optifinePatch}|{optifineFile}";
+                        if (loaderKind == "OptiFine") loaderVer = optifineTag;
+                    }
+                    string instFolderName = loaderKind switch
+                    {
+                        "Fabric" => $"fabric-loader-{loaderVer}-{mcVersion}",
+                        "NeoForge" => $"{mcVersion}-NeoForge_{loaderVer}",
+                        "Forge" when optifineTag.Length > 0 => $"{mcVersion}-Forge_{loaderVer}-OptiFine_{optifineTag}",
+                        "Forge" => $"{mcVersion}-Forge_{loaderVer}",
+                        "Quilt" => $"quilt-loader-{loaderVer}-{mcVersion}",
+                        "OptiFine" => $"{mcVersion}-OptiFine_{optifineTag}",
+                        _ => File.Exists(Path.Combine(_storage.GameDirectory(mcVersion), $"{mcVersion}.fabric.json")) ||
+                             File.Exists(Path.Combine(_storage.GameDirectory(mcVersion), $"{mcVersion}.loader.json"))
+                            ? $"{mcVersion}-vanilla" : mcVersion
+                    };
+                    string digest = _catalogVersions.FirstOrDefault(v => Equals(v["id"], mcVersion))?.GetValueOrDefault("sha1")?.ToString() ?? "";
+                    var task = _dlMgr.QueueJob(name, sub, icon, mirror, size,
+                        new("version", Target: optifineSpec, Instance: instFolderName, Version: mcVersion, Url: verJsonUrl, Digest: digest, Loader: loaderVer, Label: loaderKind, Mirror: mirror),
+                        "version:" + instFolderName.ToUpperInvariant());
                     _hasUnseenDownloadBall = true;
                     return task;
                 }
@@ -909,7 +955,7 @@ public sealed class HostBridge
                     destFolder = _storage.ResolveResourceDirectory(target.Id, subfolder);
                 }
 
-                var resource = await GetResourceAsync(catKey, GetStr(payload, "projectId"));
+                var resource = await GetResourceAsync(catKey, GetStr(payload, "projectId"), GetStr(payload, "buildId"));
                 var builds = DownloadableResourceFiles(resource.Files, catKey, GetStr(payload, "buildId"));
                 var file = target == null
                     ? builds.FirstOrDefault(build => build.GameVersions.Contains(mcVersion, StringComparer.OrdinalIgnoreCase)) ?? builds.FirstOrDefault()
@@ -919,36 +965,10 @@ public sealed class HostBridge
                 if (!usesCustomFolder && !File.Exists(destPath) && File.Exists(destPath + ".disabled")) destPath += ".disabled";
                 string source = resource.Project["source"]?.ToString() ?? "Modrinth";
                 string destinationLabel = target?.Name ?? destFolder;
-                var directTask = _dlMgr.Enqueue(name, $"{Path.GetFileName(destPath)} · {destinationLabel}", icon, source, ResourceCatalog.SizeLabel(file.Size), async (_, prog, ct) =>
-                {
-                    if (target != null && !_instances.Any(i => i.Id == target.Id)) throw new InvalidOperationException("目标实例已移除");
-                    if (usesCustomFolder && !Directory.Exists(destFolder)) throw new DirectoryNotFoundException("指定的文件夹已移除。");
-                    var speedSw = Stopwatch.StartNew();
-                    long prevBytes = 0;
-                    double prevSec = 0;
-                    await _dlMgr.DownloadVerifiedFileAsync(DownloadRoutes.Files(file.FileUrl, mirror, file.Sha1.Length > 0),
-                        destPath, file.Sha1, null, file.Size, (received, total) =>
-                    {
-                        double sec = speedSw.Elapsed.TotalSeconds;
-                        double dt = Math.Max(0.15, sec - prevSec);
-                        double bps = Math.Max(0, (received - prevBytes) / dt);
-                        if (sec - prevSec >= 0.35)
-                        {
-                            prevBytes = received;
-                            prevSec = sec;
-                        }
-                        string rate = bps >= 1048576.0 ? $"{bps / 1048576.0:F1} MB/s" : $"{bps / 1024.0:F0} KB/s";
-                        if (total > 0) prog.Report(((int)(received * 100 / total.Value), $"{rate} · {(received / 1048576.0):F1}/{(total.Value / 1048576.0):F1} MB"));
-                        else prog.Report((0, $"{rate} · {(received / 1048576.0):F1} MB"));
-                    }, ct, overwrite: !usesCustomFolder);
-                    if (target == null) return;
-                    if (_cfg.ActiveInstanceId == target.Id)
-                    {
-                        RefreshActiveResources();
-                    }
-                    SyncAutoMemoryForInstance(target);
-                    PushEvent?.Invoke("workspace_refreshed", BuildStateDto());
-                }, uniqueKey: usesCustomFolder ? "custom-resource:" + destPath.ToUpperInvariant() : null);
+                var directTask = _dlMgr.QueueJob(name, $"{Path.GetFileName(destPath)} · {destinationLabel}", icon,
+                    source, ResourceCatalog.SizeLabel(file.Size),
+                    new("resource", Target: destPath, Instance: target?.Id ?? "", File: file, Custom: usesCustomFolder, Mirror: mirror),
+                    "resource:" + Path.GetFullPath(destPath).ToUpperInvariant());
                 if (usesCustomFolder && _resourceInstallFolder?.Token == folderToken) _resourceInstallFolder = null;
                 _hasUnseenDownloadBall = true;
                 return directTask;
@@ -1075,6 +1095,23 @@ public sealed class HostBridge
                 Process.Start(new ProcessStartInfo(_storage.LogsDir) { UseShellExecute = true });
                 return new { ok = true, path = _storage.LogsDir };
 
+            case "open_downloads_folder":
+            {
+                string downloadsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+                if (!Directory.Exists(downloadsDir)) Directory.CreateDirectory(downloadsDir);
+                Process.Start(new ProcessStartInfo("explorer.exe", $"\"{downloadsDir}\"") { UseShellExecute = true });
+                return new { ok = true, path = downloadsDir };
+            }
+
+            case "open_external_url":
+            {
+                string targetUrl = GetStr(payload, "url");
+                if (!Uri.TryCreate(targetUrl, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
+                    throw new ArgumentException("仅支持打开 HTTPS 安全链接。");
+                Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
+                return new { ok = true };
+            }
+
             case "log_ui_error":
             {
                 string message = GetStr(payload, "message");
@@ -1103,9 +1140,10 @@ public sealed class HostBridge
     {
         if (buildId.Length == 0) throw new ArgumentException("请选择要安装的整合包构建。");
 
-        var (project, files) = await GetResourceAsync("modpacks", reference);
-        string source = project["source"]?.ToString() ?? "Modrinth";
-        string extension = source == "CurseForge" ? ".zip" : ".mrpack";
+        var (project, files) = await GetResourceAsync("modpacks", reference, buildId);
+        bool isCurseForge = reference.StartsWith("cf-", StringComparison.Ordinal);
+        string source = isCurseForge ? "CurseForge" : "Modrinth";
+        string extension = isCurseForge ? ".zip" : ".mrpack";
         var build = files.FirstOrDefault(file => file.Id == buildId &&
             file.File.EndsWith(extension, StringComparison.OrdinalIgnoreCase) &&
             Uri.TryCreate(file.FileUrl, UriKind.Absolute, out var url) && url.Scheme == Uri.UriSchemeHttps)
@@ -1116,15 +1154,134 @@ public sealed class HostBridge
 
         string name = project.GetValueOrDefault("cnName")?.ToString() ?? "";
         if (name.Length == 0) name = project["enName"]?.ToString() ?? "";
-        string key = CurseForgeKey;
-        string cfRoute = CurseForgeApiRoute;
+        string resolvedIcon = icon.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+            ? icon
+            : (project.GetValueOrDefault("icon")?.ToString() ?? icon);
         _hasUnseenDownloadBall = true;
-        return _dlMgr.Enqueue(name, build.Title, icon, source, ResourceCatalog.SizeLabel(build.Size), async (_, progress, ct) =>
+        return _dlMgr.QueueJob(name, build.Title, resolvedIcon, source, ResourceCatalog.SizeLabel(build.Size),
+            new("pack", Instance: id, Label: source, File: build, Mirror: mirror), id);
+    }
+
+    private async Task ExecuteJobAsync(DownloadRecipe job, DownloadTaskEntry entry,
+        IProgress<(int Progress, string Speed)> prog, CancellationToken ct)
+    {
+        string mirror = job.Mirror.Length > 0 ? job.Mirror : DownloadSource;
+        switch (job.Kind)
         {
-            await _packInstaller.InstallAsync(id, source, name, build, mirror, _javas, key, progress, ct, cfRoute);
-            RefreshLocalWorkspace();
-            PushEvent?.Invoke("workspace_refreshed", BuildStateDto());
-        }, uniqueKey: id);
+            case "java":
+            {
+                if (job.Target.Length > 0 && !Directory.Exists(job.Target)) throw new DirectoryNotFoundException("Java 安装目录已移除");
+                prog.Report((5, $"查询 {job.Label} 下载信息..."));
+                using var lookup = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                lookup.CancelAfter(TimeSpan.FromSeconds(20));
+                var pkg = await _javaMgr.ResolveVendorJavaDownloadAsync(job.Vendor, job.Major, lookup.Token);
+                if (!InstanceManager.IsFileName(pkg.FileName)) throw new InvalidDataException("Java 安装包文件名无效");
+                string zip = Path.Combine(_storage.CacheDir, "java", pkg.Sha256, pkg.FileName);
+                IReadOnlyList<string> routes = [pkg.Url];
+                if (job.Vendor.Equals("temurin", StringComparison.OrdinalIgnoreCase) && mirror != "官方源")
+                {
+                    string tuna = $"https://mirrors.tuna.tsinghua.edu.cn/Adoptium/{job.Major}/jdk/x64/windows/{Uri.EscapeDataString(pkg.FileName)}";
+                    routes = new RouteList(mirror == "最优/官方源" ? [pkg.Url, tuna] : [tuna, pkg.Url], mirror.StartsWith("最优"));
+                }
+                await _dlMgr.DownloadVerifiedFileAsync(routes, zip, null, null, pkg.Size, (rec, tot) =>
+                {
+                    if (tot > 0) prog.Report((10 + (int)(rec * 75 / tot.Value), $"{rec / 1048576.0:F1}/{tot.Value / 1048576.0:F1} MB"));
+                }, ct, sha256: pkg.Sha256);
+                prog.Report((90, "校验并安装运行时"));
+                await _javaMgr.ExtractJavaArchiveAsync(zip, job.Major, ct, job.Target);
+                break;
+            }
+            case "version":
+            {
+                string loaderKind = job.Label.Length > 0 ? job.Label : (job.Loader.Length > 0 ? "Fabric" : "");
+                if (loaderKind is "" or "Fabric")
+                    await _mcApi.InstallVanillaOrFabricAsync(job.Version, job.Url, job.Instance, job.Loader, mirror, prog, ct, versionSha1: job.Digest);
+                else
+                {
+                    string[] ofParts = job.Target.Length > 0 ? job.Target.Split('|') : [];
+                    string? ofType = ofParts.Length >= 2 ? ofParts[0] : null;
+                    string? ofPatch = ofParts.Length >= 2 ? ofParts[1] : null;
+                    string? ofFile = ofParts.Length >= 3 ? ofParts[2] : null;
+                    await _packInstaller.InstallStandaloneLoaderAsync(job.Version, job.Url, job.Digest, job.Instance, loaderKind, job.Loader, mirror, _javas, prog, ct, ofType, ofPatch, ofFile);
+                }
+                break;
+            }
+            case "pack":
+                await RunPackJobAsync(job.Instance, job.Label, entry.Name, job.File!, mirror, entry, prog, ct);
+                return;
+            case "resource":
+            {
+                var target = _instances.FirstOrDefault(i => i.Id == job.Instance);
+                if (!job.Custom && target == null) throw new InvalidOperationException("目标实例已移除");
+                if (job.Custom && !Directory.Exists(Path.GetDirectoryName(job.Target))) throw new DirectoryNotFoundException("指定的文件夹已移除");
+                var file = job.File!;
+                string destPath = job.Target;
+                var speedSw = Stopwatch.StartNew();
+                long prevBytes = 0;
+                double prevSec = 0;
+                await _dlMgr.DownloadVerifiedFileAsync(DownloadRoutes.Files(file.FileUrl, mirror, file.Sha1.Length > 0),
+                    destPath, file.Sha1, null, file.Size, (received, total) =>
+                {
+                    double sec = speedSw.Elapsed.TotalSeconds;
+                    double dt = Math.Max(0.15, sec - prevSec);
+                    double bps = Math.Max(0, (received - prevBytes) / dt);
+                    if (sec - prevSec >= 0.35)
+                    {
+                        prevBytes = received;
+                        prevSec = sec;
+                    }
+                    string rate = bps >= 1048576.0 ? $"{bps / 1048576.0:F1} MB/s" : $"{bps / 1024.0:F0} KB/s";
+                    if (total > 0) prog.Report(((int)(received * 100 / total.Value), $"{rate} · {(received / 1048576.0):F1}/{(total.Value / 1048576.0):F1} MB"));
+                    else prog.Report((0, $"{rate} · {(received / 1048576.0):F1} MB"));
+                }, ct, overwrite: !job.Custom);
+                if (target == null) return;
+                if (_cfg.ActiveInstanceId == target.Id)
+                {
+                    RefreshActiveResources();
+                }
+                SyncAutoMemoryForInstance(target);
+                PushEvent?.Invoke("workspace_refreshed", BuildStateDto());
+                return;
+            }
+            default: throw new InvalidDataException("未知的下载任务");
+        }
+        RefreshLocalWorkspace();
+        PushEvent?.Invoke("workspace_refreshed", BuildStateDto());
+    }
+
+    private async Task RunPackJobAsync(string id, string source, string name, ResourceFile build, string mirror,
+        DownloadTaskEntry entry, IProgress<(int Progress, string Speed)> progress, CancellationToken ct)
+    {
+        try
+        {
+            if (!File.Exists(Path.Combine(_storage.GameDirectory(id), InstalledPack.FileName)))
+                await _packInstaller.InstallAsync(id, source, name, build, mirror, _javas, CurseForgeKey, progress, ct, CurseForgeApiRoute, entry.Icon);
+        }
+        catch (CurseForgeManualFilesRequiredException ex)
+        {
+            string downloadsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+            PushEvent?.Invoke("curseforge_manual_files_required", new
+            {
+                taskId = entry.Id,
+                modpackName = name,
+                buildTitle = build.Title,
+                downloadsDir,
+                autoResolvedCount = ex.AutoResolvedCount,
+                files = ex.MissingFiles.Select(f => new
+                {
+                    projectId = f.ProjectId,
+                    fileId = f.FileId,
+                    projectName = f.ProjectName,
+                    fileName = f.FileName,
+                    downloadPageUrl = f.DownloadPageUrl,
+                    targetFolder = f.TargetFolder,
+                    sha1 = f.Sha1
+                }).ToArray()
+            });
+            throw;
+        }
+        RefreshLocalWorkspace();
+        PushEvent?.Invoke("workspace_refreshed", BuildStateDto());
     }
 
     private static string ResourceFolder(string category) => category switch
@@ -1296,8 +1453,7 @@ public sealed class HostBridge
         if (offset >= cfHardCap * 2)
         {
             int mrOnlyOffset = offset - cfHardCap;
-            var (mrOnlyItems, mrOnlyTotal) = await SafeSearchAsync(
-                () => _mcApi.SearchModrinthPagedAsync(ResourceCatalog.ProjectType(category), query, loader, mrOnlyOffset, pageSize, ct, sortBy, mcVersion, resourceTag, resourceSubTag));
+            var (mrOnlyItems, mrOnlyTotal) = await _mcApi.SearchModrinthPagedAsync(ResourceCatalog.ProjectType(category), query, loader, mrOnlyOffset, pageSize, ct, sortBy, mcVersion, resourceTag, resourceSubTag);
             return (mrOnlyItems.Take(pageSize).ToList(), mrOnlyTotal + cfHardCap);
         }
 
@@ -1308,13 +1464,36 @@ public sealed class HostBridge
         int mrLimit = Math.Min(50, mrBase + 5);
         int cfLimit = Math.Min(50, cfBase + 5);
 
-        Task<(List<Dictionary<string, object?>> Items, int TotalHits)> mrTask = SafeSearchAsync(
-            () => _mcApi.SearchModrinthPagedAsync(ResourceCatalog.ProjectType(category), query, loader, mrOffset, mrLimit, ct, sortBy, mcVersion, resourceTag, resourceSubTag));
+        var failures = new ConcurrentDictionary<string, Exception>();
+        async Task<(List<Dictionary<string, object?>> Items, int TotalHits)> Search(string source, Func<Task<(List<Dictionary<string, object?>>, int)>> get)
+        {
+            try { return await get(); }
+            catch (Exception ex) when (ex is IOException or HttpRequestException or JsonException or InvalidOperationException or OperationCanceledException)
+            {
+                failures[source] = ex;
+                _storage.Log($"{source} 搜索失败：{ex.Message}");
+                return ([], 0);
+            }
+        }
+        var mrTask = Search("Modrinth", () => _mcApi.SearchModrinthPagedAsync(ResourceCatalog.ProjectType(category), query, loader, mrOffset, mrLimit, ct, sortBy, mcVersion, resourceTag, resourceSubTag));
         Task<(List<Dictionary<string, object?>> Items, int TotalHits)> cfTask = cfOffset + cfLimit <= cfHardCap
-            ? SafeSearchAsync(() => _curseForge.SearchAsync(category, query, loader, cfOffset, cfLimit, CurseForgeKey, ct, sortBy, mcVersion, CurseForgeApiRoute, resourceTag, resourceSubTag))
+            ? Search("CurseForge", () => _curseForge.SearchAsync(category, query, loader, cfOffset, cfLimit, CurseForgeKey, ct, sortBy, mcVersion, CurseForgeApiRoute, resourceTag, resourceSubTag))
             : Task.FromResult((new List<Dictionary<string, object?>>(), cfHardCap));
 
         await Task.WhenAll(mrTask, cfTask);
+        if (failures.Count >= 2 || (failures.ContainsKey("Modrinth") && cfOffset + cfLimit > cfHardCap))
+            throw new IOException("在线目录请求失败，请检查网络后重试。", failures.Values.First());
+        if (!failures.IsEmpty)
+        {
+            string failedSource = failures.Keys.First();
+            long now = Environment.TickCount64;
+            long prev = _partialSearchToastAt.GetValueOrDefault(failedSource, long.MinValue);
+            if (prev == long.MinValue || now - prev >= 12000)
+            {
+                _partialSearchToastAt[failedSource] = now;
+                PushEvent?.Invoke("toast", $"{failedSource} 暂时不可用，当前只显示另一来源的结果。");
+            }
+        }
         var (mrItems, mrTotal) = mrTask.Result;
         var (cfItems, cfTotal) = cfTask.Result;
         int effectiveCfTotal = Math.Min(cfHardCap, cfTotal);
@@ -1327,8 +1506,7 @@ public sealed class HostBridge
             if (mrItems.Count < pageSize && offset > effectiveCfTotal)
             {
                 int fallbackMrOffset = Math.Max(0, offset - effectiveCfTotal);
-                var (extraMr, extraTotal) = await SafeSearchAsync(
-                    () => _mcApi.SearchModrinthPagedAsync(ResourceCatalog.ProjectType(category), query, loader, fallbackMrOffset, pageSize, ct, sortBy, mcVersion, resourceTag, resourceSubTag));
+                var (extraMr, extraTotal) = await Search("Modrinth", () => _mcApi.SearchModrinthPagedAsync(ResourceCatalog.ProjectType(category), query, loader, fallbackMrOffset, pageSize, ct, sortBy, mcVersion, resourceTag, resourceSubTag));
                 if (extraMr.Count > 0) return (extraMr.Take(pageSize).ToList(), extraTotal + effectiveCfTotal);
             }
             return (mrItems.Take(pageSize).ToList(), Math.Max(mrTotal, combinedTotal));
@@ -1393,24 +1571,24 @@ public sealed class HostBridge
         return (merged.Take(pageSize).ToList(), combinedTotal);
     }
 
-    private static async Task<(List<Dictionary<string, object?>> Items, int TotalHits)> SafeSearchAsync(
-        Func<Task<(List<Dictionary<string, object?>> Items, int TotalHits)>> action)
-    {
-        try { return await action(); }
-        catch { return ([], 0); }
-    }
-
-    private async Task<(Dictionary<string, object?> Project, List<ResourceFile> Files)> GetResourceAsync(string category, string reference)
+    private async Task<(Dictionary<string, object?> Project, List<ResourceFile> Files)> GetResourceAsync(string category, string reference, string? buildId = null)
     {
         if (reference.Length < 4 || !(reference.StartsWith("mr-", StringComparison.Ordinal) || reference.StartsWith("cf-", StringComparison.Ordinal)))
             throw new ArgumentException("请选择在线资源目录中的项目。");
         string key = $"{category}:{reference}";
-        if (_resourceCache.TryGetValue(key, out var cached) && DateTimeOffset.UtcNow < cached.Expires)
+        if (_resourceCache.TryGetValue(key, out var cached) && DateTimeOffset.UtcNow < cached.Expires &&
+            (string.IsNullOrEmpty(buildId) || cached.Files.Any(file => file.Id == buildId)))
             return (cached.Project, cached.Files);
 
+        if (reference.StartsWith("cf-", StringComparison.Ordinal) && !string.IsNullOrEmpty(buildId))
+        {
+            key += ":" + buildId;
+            if (_resourceCache.TryGetValue(key, out cached) && DateTimeOffset.UtcNow < cached.Expires)
+                return (cached.Project, cached.Files);
+        }
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
         var (project, files) = reference.StartsWith("cf-", StringComparison.Ordinal)
-            ? await _curseForge.GetResourceAsync(category, reference[3..], CurseForgeKey, timeout.Token, CurseForgeApiRoute)
+            ? await _curseForge.GetResourceAsync(category, reference[3..], CurseForgeKey, timeout.Token, CurseForgeApiRoute, buildId)
             : await _mcApi.GetModrinthResourceAsync(category, reference[3..], timeout.Token);
         if (_resourceCache.Count >= 24)
         {

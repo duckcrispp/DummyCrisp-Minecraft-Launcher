@@ -760,6 +760,11 @@
         state.alwaysOnTop = Boolean(payload?.pinned);
         return { alwaysOnTop: state.alwaysOnTop };
       }
+      case "open_downloads_folder":
+        return { ok: true, path: "Downloads" };
+      case "open_external_url":
+        if (payload?.url) global.open(payload.url, "_blank", "noopener,noreferrer");
+        return { ok: true };
       case "toggle_mod": {
         const mod = state.installedMods.find((m) => m.id === payload.id);
         if (mod) mod.enabled = !mod.enabled;
@@ -792,9 +797,20 @@
       case "set_instance_icon": {
         const inst = state.instances.find((i) => i.id === payload.id);
         if (inst) {
-          inst.iconId = payload.iconId;
-          delete inst.customIcon;
+          if (payload.iconId === "__pack__" && inst.packIcon) {
+            inst.customIcon = inst.packIcon;
+          } else {
+            inst.iconId = payload.iconId;
+            delete inst.customIcon;
+          }
         }
+        return inst;
+      }
+      case "rename_instance": {
+        const inst = state.instances.find((i) => i.id === payload.id);
+        const nextName = String((payload && payload.name) || "").trim().slice(0, 80);
+        if (!inst || !nextName) return null;
+        inst.name = nextName;
         return inst;
       }
       case "switch_account": {

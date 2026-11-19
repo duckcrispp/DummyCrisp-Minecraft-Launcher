@@ -114,6 +114,8 @@ public sealed class InstanceManager
         {
             useGlobal = false;
         }
+        string? packIcon = !string.IsNullOrWhiteSpace(pack?.Icon) ? pack.Icon : saved?.PackIcon;
+        string? customIcon = saved != null ? saved.CustomIcon : packIcon;
         return new InstanceMeta
         {
             Id = id,
@@ -125,7 +127,8 @@ public sealed class InstanceManager
             JavaVersion = bestJava != null ? FormatJavaLabel(bestJava.Version) : "未检测到 Java",
             JvmArgs = resolvedJvm,
             IconId = !string.IsNullOrWhiteSpace(saved?.IconId) ? saved!.IconId : "grass",
-            CustomIcon = saved?.CustomIcon,
+            CustomIcon = customIcon,
+            PackIcon = packIcon,
             IsModpack = isModpack,
             RequiredJavaMajor = pack?.JavaMajor ?? 0,
             FolderColor = !string.IsNullOrWhiteSpace(saved?.FolderColor) ? saved!.FolderColor : PickColorForLoader(loader),
@@ -445,7 +448,7 @@ public sealed class InstanceManager
             if (string.IsNullOrWhiteSpace(mcVer))
             {
                 string rawId = root.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? fallbackId : fallbackId;
-                var leadVer = Regex.Match(rawId, @"^(\d+\.\d+(?:\.\d+)?)(?=[-_\s]+(?:forge|neoforge|fabric|quilt))", RegexOptions.IgnoreCase);
+                var leadVer = Regex.Match(rawId, @"^(\d+\.\d+(?:\.\d+)?)(?=[-_\s]+(?:forge|neoforge|fabric|quilt|optifine))", RegexOptions.IgnoreCase);
                 mcVer = leadVer.Success ? leadVer.Groups[1].Value : rawId;
             }
 
@@ -471,6 +474,11 @@ public sealed class InstanceManager
             {
                 var m = Regex.Match(rawJson, @"fabric-loader:([^""\s]+)");
                 return (mcVer, "Fabric", m.Success ? m.Groups[1].Value : "已安装");
+            }
+            if (rawJson.Contains("optifine:OptiFine", StringComparison.OrdinalIgnoreCase))
+            {
+                var m = Regex.Match(rawJson, @"optifine:OptiFine:[^""\s_]+_([^""\s]+)");
+                return (mcVer, "OptiFine", m.Success ? m.Groups[1].Value : "已安装");
             }
             return (mcVer, "Vanilla", "原版");
         }

@@ -1450,9 +1450,17 @@
         const embBox = btn.querySelector(".folder-emblem");
         const embImg = btn.querySelector(".folder-emblem img");
         const im = window.LauncherViews.getIconMeta(instData.iconId);
-        if (embImg && embImg.getAttribute("src") !== im.src) {
-          embImg.src = im.src;
-          embImg.alt = im.name;
+        const targetSrc = instData.customIcon || im.src;
+        const targetAlt = instData.customIcon ? instData.name : im.name;
+        if (embImg) {
+          if (embImg.getAttribute("src") !== targetSrc) {
+            embImg.src = targetSrc;
+            embImg.alt = targetAlt;
+          }
+          embImg.classList.toggle("is-custom-emblem", Boolean(instData.customIcon));
+        }
+        if (embBox) {
+          embBox.setAttribute("title", targetAlt);
         }
         if (embBox && isAct && shouldAnimate) {
           embBox.classList.remove("is-icon-changing");
@@ -1462,25 +1470,44 @@
             embBox.classList.remove("is-icon-changing");
           }, 700);
         }
+        const folderNameEl = btn.querySelector(".folder-name");
+        if (folderNameEl && folderNameEl.textContent !== instData.name) {
+          folderNameEl.textContent = instData.name;
+        }
         const sheetCode = btn.querySelector(".sheet-code");
         if (sheetCode) sheetCode.textContent = instData.javaVersion;
       }
     });
 
-    document.querySelectorAll(".icon-choice-btn[data-set-icon]").forEach((btn) => {
-      btn.classList.toggle("is-selected", btn.getAttribute("data-set-icon") === (active.iconId || "grass"));
-    });
-
-    // Surgically update open quick panel fields in-place so switching folders NEVER flashes/replaces DOM
     const openPanel = document.getElementById("quick-panel");
     if (openPanel && activeQuickPanel === "overview") {
-      const kvVals = openPanel.querySelectorAll(".quick-kv-val");
-      if (kvVals.length >= 3) {
-        kvVals[0].textContent = active.loader;
-        kvVals[1].textContent = active.loaderVersion;
-        kvVals[2].textContent = active.mcVersion;
+      const hasCustom = Boolean(active.customIcon);
+      const packIconSrc = active.packIcon || active.customIcon || "";
+      const existingPackBtn = openPanel.querySelector('.icon-choice-btn[data-set-icon="__pack__"]');
+      if (Boolean(existingPackBtn) !== Boolean(packIconSrc)) {
+        syncQuickPanelUi(state, { quiet: true });
+      } else {
+        if (existingPackBtn && packIconSrc) {
+          const img = existingPackBtn.querySelector("img");
+          if (img && img.getAttribute("src") !== packIconSrc) img.src = packIconSrc;
+        }
+        openPanel.querySelectorAll(".icon-choice-btn[data-set-icon]").forEach((btn) => {
+          const key = btn.getAttribute("data-set-icon");
+          const isSel = key === "__pack__" ? hasCustom : !hasCustom && key === (active.iconId || "grass");
+          btn.classList.toggle("is-selected", isSel);
+        });
+        const kvVals = openPanel.querySelectorAll(".quick-kv-val");
+        if (kvVals.length >= 3) {
+          kvVals[0].textContent = active.loader;
+          kvVals[1].textContent = active.loaderVersion;
+          kvVals[2].textContent = active.mcVersion;
+        }
+        const nameInput = document.getElementById("quick-instance-name-input");
+        if (nameInput && document.activeElement !== nameInput) {
+          nameInput.value = active.name || "";
+        }
+        syncInstanceColorUi(state, false);
       }
-      syncInstanceColorUi(state, false);
     } else if (openPanel && activeQuickPanel === "settings") {
       const effectiveMemMb = active.useGlobalSettings ? state.memoryMb : (active.memoryMb || state.memoryMb);
       const effectiveJvmArgs = active.useGlobalSettings ? state.customJvmArgs : (active.jvmArgs || state.customJvmArgs);
@@ -3153,17 +3180,38 @@
       const selectedKeys = Object.keys(selected).filter((k) => Boolean(selected[k]));
       const suffix = selectedKeys.length > 0 ? ` + ${selectedKeys.join(" + ")}` : " (原版)";
       const taskName = `Minecraft ${detail.id}${suffix}`;
-      let fabricVersion = "";
-      if (selected.Fabric && detail.loaderTrees && detail.loaderTrees.Fabric) {
-        const trees = detail.loaderTrees.Fabric || [];
-        for (const grp of trees) {
-          const b = (grp.builds || []).find((x) => String(x.id) === String(selected.Fabric));
-          if (b) {
-            fabricVersion = String(b.versionNumber || b.title || "").replace(/^Fabric\s+/i, "").split(/\s+/)[0];
-            break;
-          }
+      let loaderKind = "";
+      let loaderVersion = "";
+      let optifineType = "";
+      let optifinePatch = "";
+      let optifineFile = "";
+      const findBuild = (ld) => {
+        if (!selected[ld] || !detail.loaderTrees || !detail.loaderTrees[ld]) return null;
+        for (const grp of detail.loaderTrees[ld] || []) {
+          const hit = (grp.builds || []).find((x) => String(x.id) === String(selected[ld]));
+          if (hit) return hit;
+        }
+        return null;
+      };
+      const primaryKey = selectedKeys.find((k) => k !== "OptiFine") || (selectedKeys.includes("OptiFine") ? "OptiFine" : "");
+      if (primaryKey) {
+        loaderKind = primaryKey;
+        const b = findBuild(primaryKey);
+        if (b) {
+          loaderVersion = String(b.versionNumber || b.title || "")
+            .replace(/^(?:Fabric|Quilt|NeoForge|Forge|OptiFine)\s+(?:Loader\s+)?/i, "")
+            .split(/\s+/)[0];
         }
       }
+      if (selected.OptiFine) {
+        const ofBuild = findBuild("OptiFine");
+        if (ofBuild) {
+          optifineType = String(ofBuild.optifineType || "");
+          optifinePatch = String(ofBuild.optifinePatch || "");
+          optifineFile = String(ofBuild.file || "");
+        }
+      }
+      const fabricVersion = loaderKind === "Fabric" ? loaderVersion : "";
       try {
         await window.LauncherBridge.invoke("add_download_task", {
           name: taskName,
@@ -3172,6 +3220,11 @@
           size: selectedKeys.length > 0 ? "32.8 MB" : "26.4 MB",
           installType: "version",
           mcVersion: detail.id,
+          loaderKind,
+          loaderVersion,
+          optifineType,
+          optifinePatch,
+          optifineFile,
           fabricVersion,
           loaders: selectedKeys
         });
@@ -3856,8 +3909,9 @@
       return;
     }
 
-    const installBtn = e.target.closest("[data-install-action]") ||
+    const rawInstallBtn = e.target.closest("[data-install-action]") ||
       e.target.closest(".data-row--build.is-selectable-build")?.querySelector("[data-install-action]");
+    const installBtn = rawInstallBtn && !rawInstallBtn.hasAttribute("data-install-official-java") ? rawInstallBtn : null;
     if (installBtn) {
       e.stopPropagation();
       const task = {
@@ -4207,24 +4261,30 @@
 
     const installOffJavaBtn = e.target.closest("[data-install-official-java]");
     if (installOffJavaBtn) {
+      e.stopPropagation();
       const offId = installOffJavaBtn.getAttribute("data-install-official-java");
       const offVendor = installOffJavaBtn.getAttribute("data-java-vendor") || javaVendor;
       showNetworkLoader("正在连接 Java 官网获取安装包...", 1200);
-      const res = await window.LauncherBridge.invoke("install_java_official", {
-        id: offId,
-        vendor: offVendor,
-        folderToken: javaInstallToken,
-        installPath: javaInstallPath
-      });
-      const st = window.LauncherBridge.getStateSync();
-      syncFloatingDownloadBallUi(st);
-      if (activeSubRoute === "auth-java" && document.getElementById("hub-outlet")) {
-        syncHubOutletUi({ animateMasonry: false });
-      } else {
-        render();
-      }
-      if (res && res.official) {
-        showToast(`已添加官网安装任务：Java ${res.official.fullVersion} (${res.official.vendor})`);
+      try {
+        const res = await window.LauncherBridge.invoke("install_java_official", {
+          id: offId,
+          vendor: offVendor,
+          folderToken: javaInstallToken,
+          installPath: javaInstallPath
+        });
+        const st = window.LauncherBridge.getStateSync();
+        syncFloatingDownloadBallUi(st);
+        if (activeSubRoute === "auth-java" && document.getElementById("hub-outlet")) {
+          syncHubOutletUi({ animateMasonry: false });
+        } else {
+          render();
+        }
+        const label = res?.official
+          ? `Java ${res.official.fullVersion} (${res.official.vendor})`
+          : res?.task?.name || "Java 运行时";
+        showToast(`已添加官网安装任务：${label}`);
+      } catch (error) {
+        showToast(error?.message || "添加 Java 安装任务失败");
       }
       return;
     }
@@ -4290,6 +4350,11 @@
     if (e.target.closest("[data-quick-close]")) {
       activeQuickPanel = null;
       syncQuickPanelUi(window.LauncherBridge.getStateSync(), { animateClose: true });
+      return;
+    }
+
+    if (e.target.closest("#btn-save-instance-name")) {
+      await commitQuickInstanceRename();
       return;
     }
 
@@ -4481,10 +4546,50 @@
     }
   });
 
+  async function commitQuickInstanceRename() {
+    const input = document.getElementById("quick-instance-name-input");
+    if (!input) return;
+    const st = window.LauncherBridge.getStateSync();
+    const active = window.LauncherViews.getActiveInstance(st);
+    if (!active || !active.id) return;
+    const trimmed = String(input.value || "").trim().slice(0, 80);
+    if (!trimmed) {
+      input.value = active.name || "";
+      showToast("版本名称不能为空");
+      return;
+    }
+    if (trimmed === active.name) return;
+    try {
+      await window.LauncherBridge.invoke("rename_instance", { id: active.id, name: trimmed });
+      const after = window.LauncherBridge.getStateSync();
+      const updated = window.LauncherViews.getActiveInstance(after);
+      const artSlot = document.getElementById("version-art-slot");
+      if (artSlot) {
+        artSlot.innerHTML = window.LauncherViews.renderVersionArtHero(updated, false, after);
+      }
+      syncInstanceUi(after, false, false);
+      showToast("已更新版本名称");
+    } catch (err) {
+      input.value = active.name || "";
+      showToast(err?.message || "更新版本名称失败");
+    }
+  }
+
   document.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.isComposing && e.target && e.target.id === "subpage-search") {
       e.preventDefault();
       handleSearchBoxUpdate(e.target, true);
+    }
+    if (e.key === "Enter" && !e.isComposing && e.target && e.target.id === "quick-instance-name-input") {
+      e.preventDefault();
+      e.target.blur();
+      commitQuickInstanceRename();
+    }
+  });
+
+  document.addEventListener("change", (e) => {
+    if (e.target && e.target.id === "quick-instance-name-input") {
+      commitQuickInstanceRename();
     }
   });
 
@@ -4663,12 +4768,16 @@
             const fill = row.querySelector(".dl-task-progress-fill");
             const pct = row.querySelector(".dl-progress-pct");
             const subEl = row.querySelector(".quick-mod-file");
+            const srcEl = row.querySelector(".row-en-name");
             if (fill) {
               fill.style.width = `${t.progress}%`;
               fill.classList.toggle("is-done", t.status === "completed");
             }
             if (pct) pct.textContent = `${t.progress}%`;
             fill?.parentElement?.setAttribute("aria-valuenow", String(t.progress));
+            if (srcEl) {
+              srcEl.textContent = `${t.size} · ${t.source}`;
+            }
             if (subEl) {
               subEl.textContent = `${t.sub} · ${t.status === "completed" ? t.size : t.speed}`;
               subEl.title = t.status === "paused" ? t.speed : "";
@@ -4731,9 +4840,78 @@
         showToast(data.message || "游戏异常退出，请在【运行诊断】查看报错分析");
       } else if (evt === "toast" && data) {
         showToast(String(data));
+      } else if (evt === "curseforge_manual_files_required" && data) {
+        openCfManualDialog(data);
       }
     });
   }
+
+  let activeCfManualData = null;
+  function openCfManualDialog(data) {
+    const dlg = document.getElementById("cf-manual-dialog");
+    const summaryEl = document.getElementById("cf-manual-summary");
+    const listEl = document.getElementById("cf-manual-list");
+    if (!dlg || !summaryEl || !listEl) return;
+    activeCfManualData = data;
+    const files = Array.isArray(data.files) ? data.files : [];
+    const autoCount = Number(data.autoResolvedCount) || 0;
+    const autoHint = autoCount > 0 ? `已通过 Modrinth 哈希自动补全 ${autoCount} 个依赖；` : "";
+    summaryEl.textContent = `${data.modpackName || "整合包"}：${autoHint}以下 ${files.length} 个依赖因作者禁用 CurseForge 第三方接口直链，需在浏览器下载至「下载」文件夹后点击重试：`;
+
+    listEl.innerHTML = "";
+    files.forEach((f) => {
+      const row = document.createElement("div");
+      row.className = "cf-manual-item";
+      const meta = document.createElement("div");
+      meta.className = "cf-manual-item-meta";
+      const title = document.createElement("div");
+      title.className = "cf-manual-item-title";
+      title.textContent = `${f.projectName || "CurseForge 依赖"} · ${f.targetFolder || "mods"}`;
+      const file = document.createElement("div");
+      file.className = "cf-manual-item-file";
+      const missingDigest = !f.sha1 || String(f.sha1).length !== 40;
+      file.textContent = missingDigest ? `${f.fileName || ""} · 缺少发布方摘要（暂无法自动验证）` : (f.fileName || "");
+      meta.appendChild(title);
+      meta.appendChild(file);
+
+      const openBtn = document.createElement("button");
+      openBtn.type = "button";
+      openBtn.className = "chip-btn";
+      openBtn.textContent = "打开下载页";
+      openBtn.addEventListener("click", () => {
+        if (f.downloadPageUrl) {
+          window.LauncherBridge.invoke("open_external_url", { url: f.downloadPageUrl }).catch(() => {});
+        }
+      });
+
+      row.appendChild(meta);
+      row.appendChild(openBtn);
+      listEl.appendChild(row);
+    });
+
+    if (!dlg.open) dlg.showModal();
+  }
+
+  document.getElementById("cf-manual-open-dir")?.addEventListener("click", () => {
+    window.LauncherBridge.invoke("open_downloads_folder", {}).catch(() => {});
+  });
+  document.getElementById("cf-manual-open-all")?.addEventListener("click", () => {
+    const files = Array.isArray(activeCfManualData?.files) ? activeCfManualData.files : [];
+    files.forEach((f, idx) => {
+      if (!f.downloadPageUrl) return;
+      setTimeout(() => {
+        window.LauncherBridge.invoke("open_external_url", { url: f.downloadPageUrl }).catch(() => {});
+      }, idx * 240);
+    });
+  });
+  document.getElementById("cf-manual-retry")?.addEventListener("click", async () => {
+    const taskId = activeCfManualData?.taskId;
+    const dlg = document.getElementById("cf-manual-dialog");
+    if (dlg && dlg.open) dlg.close();
+    if (!taskId) return;
+    await window.LauncherBridge.invoke("toggle_download_task", { id: taskId }).catch(() => {});
+    if (currentRoute === "download-queue") render();
+  });
 
   /* ---------- Unified Uiverse massive-termite-69 Hover Tooltip Controller ---------- */
   function initGlobalTooltips() {

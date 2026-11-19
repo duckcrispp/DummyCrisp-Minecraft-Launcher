@@ -1,0 +1,348 @@
+/* ==========================================================================
+   3D Spatial Sub-Menu Portal (Inspired by Uiverse tricky-lionfish-78)
+   True Z-Axis Parallax Layers + Crosshatch Shift + Perspective Tilt
+   ========================================================================== */
+
+.portal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: var(--bg-overlay);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: clamp(24px, 4vw, 56px);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 360ms var(--ease-breath),
+    visibility 360ms var(--ease-breath);
+  overflow-y: auto;
+}
+
+.portal-backdrop.is-open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.portal-header {
+  max-width: 1280px;
+  width: 100%;
+  margin: 0 auto 28px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line-solid);
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.portal-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent-primary);
+  margin-bottom: 8px;
+}
+
+.portal-title {
+  font-family: var(--font-serif);
+  font-size: clamp(2rem, 4vw, 3.25rem);
+  font-weight: 400;
+  line-height: 1;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+.portal-title strong {
+  font-family: var(--font-display);
+  font-weight: 900;
+  text-transform: uppercase;
+  margin-left: 10px;
+  font-size: 0.85em;
+}
+
+.portal-close {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  color: var(--text-primary);
+  box-shadow: 0 0 0 1.5px var(--line-solid);
+  padding: 10px 22px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  transition: all 0.6s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.portal-close::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 20px;
+  height: 20px;
+  background-color: var(--accent-primary);
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+  z-index: -1;
+  transition: all 0.8s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.portal-close:hover,
+.portal-close:focus-visible {
+  color: var(--text-on-accent);
+  box-shadow: 0 0 0 5px var(--accent-soft);
+}
+
+.portal-close:hover::before,
+.portal-close:focus-visible::before {
+  width: 220px;
+  height: 220px;
+  opacity: 1;
+}
+
+.portal-close:active {
+  transform: scale(0.95);
+}
+
+/* 3D Cards Grid */
+.portal-grid {
+  max-width: 1280px;
+  width: 100%;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(248px, 1fr));
+  gap: 24px;
+  align-items: stretch;
+}
+
+/* Perspective Root (.parent equivalent) */
+.card-stage {
+  perspective: 1000px;
+  padding: 12px;
+  opacity: 0;
+  transform: translateY(28px) scale(0.96);
+  transition:
+    opacity 460ms var(--ease-breath),
+    transform 520ms var(--ease-breath);
+}
+
+.portal-backdrop.is-open .card-stage {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.portal-backdrop.is-open .card-stage:nth-child(1) { transition-delay: 40ms; }
+.portal-backdrop.is-open .card-stage:nth-child(2) { transition-delay: 90ms; }
+.portal-backdrop.is-open .card-stage:nth-child(3) { transition-delay: 140ms; }
+.portal-backdrop.is-open .card-stage:nth-child(4) { transition-delay: 190ms; }
+.portal-backdrop.is-open .card-stage:nth-child(5) { transition-delay: 240ms; }
+
+/* Base Card Plate (.card equivalent) */
+.card-3d {
+  position: relative;
+  width: 100%;
+  min-height: 278px;
+  padding-top: 46px;
+  border: 3px solid var(--card-plate-border);
+  transform-style: preserve-3d;
+  background-color: var(--card-plate-bg);
+  background-image:
+    linear-gradient(135deg, transparent 18.75%, var(--card-grid-line) 0 31.25%, transparent 0),
+    repeating-linear-gradient(45deg, var(--card-grid-line) -6.25% 6.25%, transparent 0 18.75%);
+  background-size: 56px 56px;
+  background-position: 0 0, 0 0;
+  box-shadow: 0 28px 32px -12px var(--card-shadow);
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  transform-origin: center center;
+  transition:
+    transform 0.5s var(--ease-breath),
+    background-position 0.5s var(--ease-breath),
+    box-shadow 0.5s var(--ease-breath);
+}
+
+.card-3d:hover,
+.card-3d:focus-visible,
+.card-3d.is-selected {
+  background-position: -100px 100px, -100px 100px;
+  transform: rotate3d(0.5, 1, 0, 26deg);
+  box-shadow: -18px 34px 44px -10px var(--card-shadow);
+  outline: none;
+}
+
+/* Translucent Accent Surface (.content-box equivalent) */
+.card-3d .content-box {
+  flex: 1;
+  background: var(--accent-translucent);
+  padding: 58px 22px 24px 22px;
+  transform-style: preserve-3d;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: background 0.45s var(--ease-breath);
+}
+
+.card-3d:hover .content-box {
+  background: var(--accent-translucent-hover);
+}
+
+/* Elevated Layer 3: Card Title (Z = 50px -> 60px) */
+.card-3d .card-title {
+  display: block;
+  color: var(--text-on-accent);
+  font-family: var(--font-display);
+  font-size: 23px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  transform: translate3d(0px, 0px, 50px);
+  transition: transform 0.5s var(--ease-breath);
+}
+
+.card-3d .card-title-sub {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.72;
+}
+
+/* Elevated Layer 2: Description (Z = 30px -> 60px) */
+.card-3d .card-content {
+  margin-top: 12px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--text-on-accent-muted);
+  transform: translate3d(0px, 0px, 30px);
+  transition: transform 0.5s var(--ease-breath);
+}
+
+/* Elevated Layer 1: Action Pill (Z = 20px -> 60px) */
+.card-3d .see-more {
+  margin-top: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  font-family: var(--font-mono);
+  font-weight: 800;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--card-badge-text);
+  background: var(--card-badge-bg);
+  border: 1px solid var(--text-on-accent);
+  padding: 7px 12px;
+  transform: translate3d(0px, 0px, 20px);
+  transition:
+    transform 0.5s var(--ease-breath),
+    letter-spacing 0.3s ease;
+}
+
+/* Elevated Layer 4: Floating Top-Right Index Cube (.date-box equivalent, Z = 80px) */
+.card-3d .index-box {
+  position: absolute;
+  top: 22px;
+  right: 22px;
+  width: 62px;
+  height: 62px;
+  background: var(--card-badge-bg);
+  border: 2px solid var(--card-plate-border);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 18px 14px -10px rgba(0, 0, 0, 0.45);
+  transform: translate3d(0px, 0px, 80px);
+  transition: transform 0.5s var(--ease-breath);
+}
+
+.card-3d .index-box .index-tag {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--card-badge-text);
+  opacity: 0.85;
+}
+
+.card-3d .index-box .index-num {
+  font-family: var(--font-display);
+  font-size: 21px;
+  font-weight: 900;
+  line-height: 1.05;
+  color: var(--card-badge-text);
+}
+
+/* Synchronized Z-axis pop on hover & active selection */
+.card-3d:hover .card-title,
+.card-3d:hover .card-content,
+.card-3d:hover .see-more,
+.card-3d.is-selected .card-title,
+.card-3d.is-selected .card-content,
+.card-3d.is-selected .see-more {
+  transform: translate3d(0px, 0px, 60px);
+}
+
+.card-3d:hover .index-box,
+.card-3d.is-selected .index-box {
+  transform: translate3d(0px, 0px, 95px);
+}
+
+.card-3d:hover .see-more {
+  letter-spacing: 0.18em;
+}
+
+.portal-hint {
+  max-width: 1280px;
+  width: 100%;
+  margin: 20px auto 0;
+  padding-top: 14px;
+  border-top: 1px dotted var(--line-dotted);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card-3d,
+  .card-3d .card-title,
+  .card-3d .card-content,
+  .card-3d .see-more,
+  .card-3d .index-box {
+    transition: none;
+  }
+  .card-3d:hover {
+    transform: none;
+    background-position: 0 0, 0 0;
+  }
+}

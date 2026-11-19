@@ -1,0 +1,441 @@
+/* ==========================================================================
+   DummyCrisp Design Tokens — Multi-Theme Variable Architecture
+   Default Showcase: obsidian-yellow (曜石黑 × 电光黄)
+   ========================================================================== */
+
+:root,
+[data-theme="obsidian-yellow"] {
+  --theme-name: "曜石黑 × 电光黄";
+
+  /* Canvas & Surfaces */
+  --bg-primary: #0a0a0c;
+  --bg-elevated: #131317;
+  --bg-surface: #1b1b21;
+  --bg-accent-block: #f5c518;
+  --bg-accent-block-alt: #ffd426;
+  --bg-overlay: rgba(10, 10, 12, 0.92);
+
+  /* Accent & 3D Surface */
+  --accent-primary: #f5c518;
+  --accent-bright: #ffe14d;
+  --accent-soft: rgba(245, 197, 24, 0.14);
+  --accent-glow: rgba(245, 197, 24, 0.34);
+  --accent-translucent: rgba(245, 197, 24, 0.88);
+  --accent-translucent-hover: rgba(255, 210, 31, 0.94);
+  --accent-marker: #ff3b30;
+  --accent-ok: #34d399;
+  --accent-info: #38bdf8;
+
+  /* Typography Ink */
+  --text-primary: #f4f3ef;
+  --text-secondary: #a1a1aa;
+  --text-muted: #71717a;
+  --text-on-accent: #0a0a0c;
+  --text-on-accent-muted: rgba(10, 10, 12, 0.72);
+
+  /* Hairlines & Borders */
+  --line-solid: rgba(245, 197, 24, 0.28);
+  --line-solid-subtle: rgba(244, 243, 239, 0.14);
+  --line-dotted: rgba(244, 243, 239, 0.24);
+  --line-on-accent: rgba(10, 10, 12, 0.26);
+  --line-dotted-on-accent: rgba(10, 10, 12, 0.36);
+
+  /* 3D Card Crosshatch Pattern */
+  --card-plate-bg: #16161a;
+  --card-plate-border: #f5c518;
+  --card-grid-line: rgba(245, 197, 24, 0.16);
+  --card-badge-bg: #0a0a0c;
+  --card-badge-text: #f5c518;
+  --card-shadow: rgba(0, 0, 0, 0.65);
+
+  /* Typography Families */
+  --font-serif: "Instrument Serif", "Playfair Display", "Noto Serif SC", "Songti SC", Georgia, serif;
+  --font-display: "Outfit", "Space Grotesk", "Noto Sans SC", "Microsoft YaHei UI", sans-serif;
+  --font-sans: "Plus Jakarta Sans", "Noto Sans SC", "Microsoft YaHei UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+
+  /* Motion Curves & Palette Defaults */
+  --ease-breath: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-snap: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast: 220ms;
+  --dur-mid: 480ms;
+  --dur-slow: 760ms;
+  --wipe-bg: #0a0a0c;
+  --wipe-ring: #f5c518;
+  --wipe-size: 3200px;
+  --pal-ring: #f5c518;
+  --pal-body: #f5c518;
+  --pal-dot-1: #0a0a0c;
+  --pal-dot-2: #1b1b21;
+  --pal-dot-3: #ffe14d;
+  --pal-dot-4: #f4f3ef;
+}
+
+/* 预留扩展主题 2：馆藏米白 × 深海蓝（致敬参考站经典人文质感） */
+[data-theme="editorial-cream"] {
+  --theme-name: "馆藏米白 × 深海蓝";
+
+  --bg-primary: #f4f3ef;
+  --bg-elevated: #eceae3;
+  --bg-surface: #ffffff;
+  --bg-accent-block: #0c3b52;
+  --bg-accent-block-alt: #082a3b;
+  --bg-overlay: rgba(244, 243, 239, 0.96);
+
+  --accent-primary: #0c3b52;
+  --accent-bright: #145a7d;
+  --accent-soft: rgba(12, 59, 82, 0.12);
+  --accent-glow: rgba(12, 59, 82, 0.24);
+  --accent-translucent: rgba(12, 59, 82, 0.86);
+  --accent-translucent-hover: rgba(12, 59, 82, 0.94);
+  --accent-marker: #d93829;
+  --accent-ok: #0f766e;
+  --accent-info: #0284c7;
+
+  --text-primary: #111111;
+  --text-secondary: #4a4a48;
+  --text-muted: #767672;
+  --text-on-accent: #f4f3ef;
+  --text-on-accent-muted: rgba(244, 243, 239, 0.74);
+
+  --line-solid: rgba(17, 17, 17, 0.18);
+  --line-solid-subtle: rgba(17, 17, 17, 0.1);
+  --line-dotted: rgba(17, 17, 17, 0.28);
+  --line-on-accent: rgba(244, 243, 239, 0.24);
+  --line-dotted-on-accent: rgba(244, 243, 239, 0.34);
+
+  --card-plate-bg: #ffffff;
+  --card-plate-border: #ffffff;
+  --card-grid-line: rgba(12, 59, 82, 0.12);
+  --card-badge-bg: #ffffff;
+  --card-badge-text: #0c3b52;
+  --card-shadow: rgba(12, 59, 82, 0.22);
+}
+
+/* 预留扩展主题 3：极夜青蓝（复刻 Uiverse 原始霓虹青透视） */
+[data-theme="cyber-cyan"] {
+  --theme-name: "极夜黑 × 透亮青";
+
+  --bg-primary: #070b10;
+  --bg-elevated: #0e151f;
+  --bg-surface: #141e2c;
+  --bg-accent-block: #04c1fa;
+  --bg-accent-block-alt: #38d2ff;
+  --bg-overlay: rgba(7, 11, 16, 0.94);
+
+  --accent-primary: #04c1fa;
+  --accent-bright: #5ce1ff;
+  --accent-soft: rgba(4, 193, 250, 0.14);
+  --accent-glow: rgba(4, 193, 250, 0.32);
+  --accent-translucent: rgba(4, 193, 250, 0.78);
+  --accent-translucent-hover: rgba(4, 193, 250, 0.9);
+  --accent-marker: #ff4757;
+  --accent-ok: #2ed573;
+  --accent-info: #70a1ff;
+
+  --text-primary: #eef6fc;
+  --text-secondary: #9fb3c8;
+  --text-muted: #627d98;
+  --text-on-accent: #070b10;
+  --text-on-accent-muted: rgba(7, 11, 16, 0.74);
+
+  --line-solid: rgba(4, 193, 250, 0.28);
+  --line-solid-subtle: rgba(238, 246, 252, 0.12);
+  --line-dotted: rgba(238, 246, 252, 0.22);
+  --line-on-accent: rgba(7, 11, 16, 0.25);
+  --line-dotted-on-accent: rgba(7, 11, 16, 0.35);
+
+  --card-plate-bg: #0e151f;
+  --card-plate-border: #ffffff;
+  --card-grid-line: rgba(4, 193, 250, 0.18);
+  --card-badge-bg: #ffffff;
+  --card-badge-text: #04a6d8;
+  --card-shadow: rgba(4, 193, 250, 0.22);
+}
+
+/* 主题 3：苔原松绿 (dad7cd / a3b18a / 588157 / 3a5a40 / 344e41) */
+[data-theme="sage-forest"] {
+  --theme-name: "苔原松绿";
+
+  --bg-primary: #dad7cd;
+  --bg-elevated: #cfccc0;
+  --bg-surface: #eceae2;
+  --bg-accent-block: #3a5a40;
+  --bg-accent-block-alt: #344e41;
+  --bg-overlay: rgba(218, 215, 205, 0.95);
+
+  --accent-primary: #3a5a40;
+  --accent-bright: #588157;
+  --accent-soft: rgba(88, 129, 87, 0.16);
+  --accent-glow: rgba(58, 90, 64, 0.28);
+  --accent-translucent: rgba(58, 90, 64, 0.88);
+  --accent-translucent-hover: rgba(52, 78, 65, 0.96);
+  --accent-marker: #c94a38;
+  --accent-ok: #588157;
+  --accent-info: #3a5a40;
+
+  --text-primary: #24332a;
+  --text-secondary: #3a5a40;
+  --text-muted: #5f6f5e;
+  --text-on-accent: #f4f3ef;
+  --text-on-accent-muted: rgba(244, 243, 239, 0.78);
+
+  --line-solid: rgba(52, 78, 65, 0.28);
+  --line-solid-subtle: rgba(52, 78, 65, 0.15);
+  --line-dotted: rgba(52, 78, 65, 0.3);
+  --line-on-accent: rgba(244, 243, 239, 0.24);
+  --line-dotted-on-accent: rgba(244, 243, 239, 0.34);
+
+  --card-plate-bg: #eceae2;
+  --card-plate-border: #3a5a40;
+  --card-grid-line: rgba(88, 129, 87, 0.18);
+  --card-badge-bg: #344e41;
+  --card-badge-text: #dad7cd;
+  --card-shadow: rgba(52, 78, 65, 0.24);
+}
+
+/* 主题 4：绯红玫瑰 (590d22 / 800f2f / a4133c / c9184a / ff4d6d / fff0f3) */
+[data-theme="crimson-rose"] {
+  --theme-name: "绯红玫瑰";
+
+  --bg-primary: #590d22;
+  --bg-elevated: #800f2f;
+  --bg-surface: #941136;
+  --bg-accent-block: #ff4d6d;
+  --bg-accent-block-alt: #ff758f;
+  --bg-overlay: rgba(89, 13, 34, 0.95);
+
+  --accent-primary: #ff758f;
+  --accent-bright: #ff8fa3;
+  --accent-soft: rgba(255, 77, 109, 0.2);
+  --accent-glow: rgba(255, 117, 143, 0.36);
+  --accent-translucent: rgba(201, 24, 74, 0.9);
+  --accent-translucent-hover: rgba(255, 77, 109, 0.95);
+  --accent-marker: #ffccd5;
+  --accent-ok: #ffb3c1;
+  --accent-info: #ff8fa3;
+
+  --text-primary: #fff0f3;
+  --text-secondary: #ffccd5;
+  --text-muted: #ffb3c1;
+  --text-on-accent: #590d22;
+  --text-on-accent-muted: rgba(89, 13, 34, 0.78);
+
+  --line-solid: rgba(255, 179, 193, 0.34);
+  --line-solid-subtle: rgba(255, 204, 213, 0.18);
+  --line-dotted: rgba(255, 204, 213, 0.32);
+  --line-on-accent: rgba(89, 13, 34, 0.25);
+  --line-dotted-on-accent: rgba(89, 13, 34, 0.35);
+
+  --card-plate-bg: #800f2f;
+  --card-plate-border: #ff8fa3;
+  --card-grid-line: rgba(255, 143, 163, 0.2);
+  --card-badge-bg: #590d22;
+  --card-badge-text: #ffccd5;
+  --card-shadow: rgba(0, 0, 0, 0.48);
+}
+
+/* 主题 5：深空紫霓 (10002b / 240046 / 3c096c / 5a189a / 7b2cbf / 9d4edd / c77dff / e0aaff) */
+[data-theme="violet-nebula"] {
+  --theme-name: "深空紫霓";
+
+  --bg-primary: #10002b;
+  --bg-elevated: #240046;
+  --bg-surface: #3c096c;
+  --bg-accent-block: #9d4edd;
+  --bg-accent-block-alt: #c77dff;
+  --bg-overlay: rgba(16, 0, 43, 0.95);
+
+  --accent-primary: #c77dff;
+  --accent-bright: #e0aaff;
+  --accent-soft: rgba(199, 125, 255, 0.18);
+  --accent-glow: rgba(199, 125, 255, 0.38);
+  --accent-translucent: rgba(157, 78, 221, 0.88);
+  --accent-translucent-hover: rgba(199, 125, 255, 0.95);
+  --accent-marker: #ff6b9d;
+  --accent-ok: #7ef29d;
+  --accent-info: #e0aaff;
+
+  --text-primary: #f6ecff;
+  --text-secondary: #e0aaff;
+  --text-muted: #b185db;
+  --text-on-accent: #10002b;
+  --text-on-accent-muted: rgba(16, 0, 43, 0.78);
+
+  --line-solid: rgba(224, 170, 255, 0.32);
+  --line-solid-subtle: rgba(224, 170, 255, 0.16);
+  --line-dotted: rgba(224, 170, 255, 0.28);
+  --line-on-accent: rgba(16, 0, 43, 0.25);
+  --line-dotted-on-accent: rgba(16, 0, 43, 0.35);
+
+  --card-plate-bg: #240046;
+  --card-plate-border: #c77dff;
+  --card-grid-line: rgba(199, 125, 255, 0.2);
+  --card-badge-bg: #10002b;
+  --card-badge-text: #e0aaff;
+  --card-shadow: rgba(0, 0, 0, 0.62);
+}
+
+/* 主题 6：极简铅灰 (f8f9fa / e9ecef / dee2e6 / ced4da / adb5bd / 6c757d / 495057 / 343a40 / 212529) */
+[data-theme="monochrome-slate"] {
+  --theme-name: "极简铅灰";
+
+  --bg-primary: #f8f9fa;
+  --bg-elevated: #e9ecef;
+  --bg-surface: #ffffff;
+  --bg-accent-block: #212529;
+  --bg-accent-block-alt: #343a40;
+  --bg-overlay: rgba(248, 249, 250, 0.96);
+
+  --accent-primary: #212529;
+  --accent-bright: #495057;
+  --accent-soft: rgba(52, 58, 64, 0.12);
+  --accent-glow: rgba(73, 80, 87, 0.22);
+  --accent-translucent: rgba(33, 37, 41, 0.88);
+  --accent-translucent-hover: rgba(52, 58, 64, 0.95);
+  --accent-marker: #d63031;
+  --accent-ok: #2d6a4f;
+  --accent-info: #495057;
+
+  --text-primary: #212529;
+  --text-secondary: #495057;
+  --text-muted: #6c757d;
+  --text-on-accent: #f8f9fa;
+  --text-on-accent-muted: rgba(248, 249, 250, 0.78);
+
+  --line-solid: rgba(52, 58, 64, 0.22);
+  --line-solid-subtle: rgba(108, 117, 125, 0.18);
+  --line-dotted: rgba(73, 80, 87, 0.28);
+  --line-on-accent: rgba(248, 249, 250, 0.24);
+  --line-dotted-on-accent: rgba(248, 249, 250, 0.34);
+
+  --card-plate-bg: #ffffff;
+  --card-plate-border: #343a40;
+  --card-grid-line: rgba(108, 117, 125, 0.15);
+  --card-badge-bg: #212529;
+  --card-badge-text: #f8f9fa;
+  --card-shadow: rgba(33, 37, 41, 0.18);
+}
+
+/* 主题 7：焦糖可可 (ffedd8 / f3d5b5 / e7bc91 / d4a276 / bc8a5f / a47148 / 8b5e34 / 6f4518 / 603808 / 583101) */
+[data-theme="espresso-amber"] {
+  --theme-name: "焦糖可可";
+
+  --bg-primary: #ffedd8;
+  --bg-elevated: #f3d5b5;
+  --bg-surface: #fff6ea;
+  --bg-accent-block: #8b5e34;
+  --bg-accent-block-alt: #6f4518;
+  --bg-overlay: rgba(255, 237, 216, 0.96);
+
+  --accent-primary: #6f4518;
+  --accent-bright: #8b5e34;
+  --accent-soft: rgba(139, 94, 52, 0.14);
+  --accent-glow: rgba(111, 69, 24, 0.24);
+  --accent-translucent: rgba(111, 69, 24, 0.88);
+  --accent-translucent-hover: rgba(88, 49, 1, 0.95);
+  --accent-marker: #c93b2b;
+  --accent-ok: #588157;
+  --accent-info: #a47148;
+
+  --text-primary: #583101;
+  --text-secondary: #6f4518;
+  --text-muted: #8b5e34;
+  --text-on-accent: #ffedd8;
+  --text-on-accent-muted: rgba(255, 237, 216, 0.78);
+
+  --line-solid: rgba(96, 56, 8, 0.24);
+  --line-solid-subtle: rgba(139, 94, 52, 0.16);
+  --line-dotted: rgba(111, 69, 24, 0.28);
+  --line-on-accent: rgba(255, 237, 216, 0.24);
+  --line-dotted-on-accent: rgba(255, 237, 216, 0.34);
+
+  --card-plate-bg: #fff6ea;
+  --card-plate-border: #8b5e34;
+  --card-grid-line: rgba(164, 113, 72, 0.16);
+  --card-badge-bg: #6f4518;
+  --card-badge-text: #ffedd8;
+  --card-shadow: rgba(88, 49, 1, 0.2);
+}
+
+/* 主题 8：晴空冰蓝 (edf2fb / e2eafc / d7e3fc / ccdbfd / c1d3fe / b6ccfe / abc4ff) */
+[data-theme="ice-periwinkle"] {
+  --theme-name: "晴空冰蓝";
+
+  --bg-primary: #edf2fb;
+  --bg-elevated: #e2eafc;
+  --bg-surface: #ffffff;
+  --bg-accent-block: #4c74d9;
+  --bg-accent-block-alt: #abc4ff;
+  --bg-overlay: rgba(237, 242, 251, 0.96);
+
+  --accent-primary: #3b63c9;
+  --accent-bright: #668ce8;
+  --accent-soft: rgba(171, 196, 255, 0.32);
+  --accent-glow: rgba(114, 151, 238, 0.3);
+  --accent-translucent: rgba(59, 99, 201, 0.88);
+  --accent-translucent-hover: rgba(45, 81, 179, 0.95);
+  --accent-marker: #e14d58;
+  --accent-ok: #0d9488;
+  --accent-info: #4c74d9;
+
+  --text-primary: #182952;
+  --text-secondary: #3a528a;
+  --text-muted: #657db3;
+  --text-on-accent: #edf2fb;
+  --text-on-accent-muted: rgba(237, 242, 251, 0.8);
+
+  --line-solid: rgba(59, 99, 201, 0.24);
+  --line-solid-subtle: rgba(59, 99, 201, 0.13);
+  --line-dotted: rgba(59, 99, 201, 0.28);
+  --line-on-accent: rgba(237, 242, 251, 0.26);
+  --line-dotted-on-accent: rgba(237, 242, 251, 0.36);
+
+  --card-plate-bg: #ffffff;
+  --card-plate-border: #b6ccfe;
+  --card-grid-line: rgba(171, 196, 255, 0.28);
+  --card-badge-bg: #3b63c9;
+  --card-badge-text: #edf2fb;
+  --card-shadow: rgba(59, 99, 201, 0.18);
+}
+
+/* 主题 9：幻彩光谱 (Prism Rainbow) */
+[data-theme="rainbow-prism"] {
+  --theme-name: "幻彩光谱";
+
+  --bg-primary: #0b0b12;
+  --bg-elevated: #141422;
+  --bg-surface: #1b1b2e;
+  --bg-accent-block: #38bdf8;
+  --bg-accent-block-alt: #f472b6;
+  --bg-overlay: rgba(11, 11, 18, 0.94);
+
+  --accent-primary: #38bdf8;
+  --accent-bright: #f472b6;
+  --accent-soft: rgba(56, 189, 248, 0.16);
+  --accent-glow: rgba(244, 114, 182, 0.36);
+  --accent-translucent: rgba(56, 189, 248, 0.88);
+  --accent-translucent-hover: rgba(167, 139, 250, 0.94);
+  --accent-marker: #ff4d6d;
+  --accent-ok: #34d399;
+  --accent-info: #a78bfa;
+
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #8492a6;
+  --text-on-accent: #0b0b12;
+  --text-on-accent-muted: rgba(11, 11, 18, 0.78);
+
+  --line-solid: rgba(167, 139, 250, 0.32);
+  --line-solid-subtle: rgba(248, 250, 252, 0.14);
+  --line-dotted: rgba(248, 250, 252, 0.24);
+  --line-on-accent: rgba(11, 11, 18, 0.24);
+  --line-dotted-on-accent: rgba(11, 11, 18, 0.34);
+
+  --card-plate-bg: #141422;
+  --card-plate-border: #a78bfa;
+  --card-grid-line: rgba(56, 189, 248, 0.18);
+  --card-badge-bg: #0b0b12;
+  --card-badge-text: #f472b6;
+  --card-shadow: rgba(167, 139, 250, 0.28);
+}

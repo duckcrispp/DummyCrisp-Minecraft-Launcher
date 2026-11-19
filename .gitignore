@@ -1,0 +1,27 @@
+# Build outputs & packaged launcher runtime
+**/bin/
+**/obj/
+dist/
+*.exe
+*.dll
+*.pdb
+*.user
+*.suo
+.vs/
+.vscode/
+
+# Launcher runtime data & user credentials (NEVER commit)
+.minecraft/
+DCL/
+*.dat
+*.log
+settings.json
+accounts.dat
+instances.json
+
+# Node / scratch / OS / local agent notes
+node_modules/
+AGENTS.md
+.DS_Store
+Thumbs.db
+desktop.ini

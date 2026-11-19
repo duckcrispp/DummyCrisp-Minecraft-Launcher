@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="obsidian-yellow">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DCL — Minecraft 启动器前端交互原型</title>
+  <link rel="icon" type="image/png" href="assets/app-icon.png">
+
+  <!-- Progressive Typography Enhancement (System Fallbacks Ready Offline) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@500;700&family=Outfit:wght@500;600;700;800&family=Plus+Jakarta+Sans:wght@400;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="styles/tokens.css">
+  <link rel="stylesheet" href="styles/layout.css">
+  <link rel="stylesheet" href="styles/card-3d.css">
+  <link rel="stylesheet" href="styles/folder-3d.css">
+</head>
+<body>
+  <!-- Quick Breathing Intro Curtain (Click or 0.7s auto-reveal) -->
+  <div class="splash-curtain" id="splash-curtain" role="presentation">
+    <div class="splash-mark">
+      <span class="brace">{</span> DummyCrisp <span class="brace">}</span>
+    </div>
+    <div class="splash-sub">Minecraft Launcher</div>
+  </div>
+
+  <!-- Circular Radial Theme Wipe Overlay (Adapted from igma.im to circular contour) -->
+  <div class="theme-circle-wipe" id="theme-circle-wipe" aria-hidden="true">
+    <div class="theme-circle-wipe__inner"></div>
+  </div>
+
+  <!-- Sticky Editorial Header (Unified Left Nav + Brand | Right Controls) -->
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="topbar-left">
+        <div class="topbar-nav-controls" aria-label="页面导航">
+          <button class="cc-btn cc-btn--topbar is-disabled" id="btn-nav-back" type="button" aria-label="返回上一级">
+            <div class="cc-box">
+              <span class="cc-elem">
+                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
+                </svg>
+              </span>
+              <span class="cc-elem">
+                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
+                </svg>
+              </span>
+            </div>
+          </button>
+
+          <button class="cc-btn cc-btn--topbar is-disabled" id="btn-nav-home" type="button" aria-label="返回主页">
+            <div class="cc-box">
+              <span class="cc-elem">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M3 10.5L12 3l9 7.5"/>
+                  <path d="M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5"/>
+                </svg>
+              </span>
+              <span class="cc-elem">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M3 10.5L12 3l9 7.5"/>
+                  <path d="M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5"/>
+                </svg>
+              </span>
+            </div>
+          </button>
+        </div>
+
+        <span class="topbar-sep" aria-hidden="true"></span>
+
+        <button class="brand-btn" data-route="home" type="button" aria-label="返回主页">
+          <span class="brand-wordmark">
+            <span class="brand-letter-d">D</span><span class="brand-letter-cl">CL</span>
+          </span>
+        </button>
+      </div>
+
+      <div class="topbar-meta">
+        <button
+          class="theme-palette-btn"
+          id="btn-cycle-theme"
+          type="button"
+          aria-label="切换配色主题 (当前：曜石黑 × 电光黄)"
+        >
+          <span class="theme-palette-ring" aria-hidden="true"></span>
+          <svg class="theme-palette-svg" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              class="palette-body"
+              d="M12 2.2C6.5 2.2 2.2 6.5 2.2 12s4.4 9.8 9.8 9.8c1.1 0 1.9-.8 1.9-1.8 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-1 .8-1.8 1.8-1.8h1.5c3.2 0 5.6-2.5 5.6-5.8 0-4.6-4.4-7.8-9.8-7.8z"
+            />
+            <circle class="palette-dot dot-1" cx="7.6" cy="11.4" r="1.45" />
+            <circle class="palette-dot dot-2" cx="9.8" cy="7.3" r="1.45" />
+            <circle class="palette-dot dot-3" cx="14.5" cy="7.3" r="1.45" />
+            <circle class="palette-dot dot-4" cx="16.8" cy="11.1" r="1.45" />
+          </svg>
+        </button>
+
+        <button class="hamburger-btn" id="btn-open-drawer" type="button" aria-label="打开全屏索引菜单">
+          <span class="filled" aria-hidden="true"></span>
+          <span class="hb-lines" aria-hidden="true">
+            <span class="hb-line"></span>
+            <span class="hb-line"></span>
+            <span class="hb-line"></span>
+          </span>
+        </button>
+
+        <div class="win-controls" id="win-controls" aria-label="窗口控制">
+          <span class="topbar-sep win-controls-sep" aria-hidden="true"></span>
+          <button class="win-ctrl-btn win-ctrl-btn--min" id="btn-win-min" type="button" aria-label="最小化">
+            <span class="filled" aria-hidden="true"></span>
+            <svg class="win-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path class="ico-min-bar" d="M6 12h12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              <path class="ico-min-echo" d="M9 12h6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+          </button>
+          <button class="win-ctrl-btn win-ctrl-btn--max" id="btn-win-max" type="button" aria-label="最大化或还原" data-maximized="false">
+            <span class="filled" aria-hidden="true"></span>
+            <svg class="win-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path class="ico-max-corners" d="M7.5 4.5H4.5v3M16.5 4.5h3v3M4.5 16.5v3h3M19.5 16.5v3h-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square"/>
+              <path class="ico-plus-h" d="M7 12h10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              <path class="ico-plus-v" d="M12 7v10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </button>
+          <button class="win-ctrl-btn win-ctrl-btn--close" id="btn-win-close" type="button" aria-label="关闭">
+            <span class="filled" aria-hidden="true"></span>
+            <svg class="win-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path class="ico-cross-a" d="M7 7l10 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              <path class="ico-cross-b" d="M17 7L7 17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              <circle class="ico-cross-core" cx="12" cy="12" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main View Outlet -->
+  <main id="app-root"></main>
+
+  <!-- Floating Download Queue Indicator Ball -->
+  <div id="floating-dl-ball-slot"></div>
+
+  <!-- Global Network Loading Indicator (uiverse.io/Quezaquo/yellow-quail-83, Pure Logo) -->
+  <div class="quail-net-pill" id="network-loader-pill" aria-live="polite" aria-label="网络加载中" aria-hidden="true">
+    <div class="quail-loader-stage" aria-hidden="true">
+      <div class="quail-loader"></div>
+    </div>
+  </div>
+
+  <!-- Crash Analysis Window Modal -->
+  <div class="crash-modal-backdrop" id="crash-window-modal" aria-hidden="true" role="dialog" aria-modal="true" aria-label="报错分析窗口">
+    <div class="crash-modal-card">
+      <div class="crash-modal-head">
+        <div class="crash-modal-title">
+          <span class="crash-modal-dot" aria-hidden="true"></span>
+          <span>报错分析 · Crash Report Window</span>
+        </div>
+        <button class="cc-btn cc-btn--sm" id="btn-close-crash-window" type="button" aria-label="关闭报错分析窗口" title="关闭">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="crash-modal-body" id="crash-modal-body">
+        <div class="crash-log crash-log--expanded">
+          <div>[23:18:04] [main/ERROR]: Mixin apply for mod sodium failed</div>
+          <div class="crash-highlight">↳ 置信度 96%：Mixin 注入冲突 (Sodium ↔ Iris)</div>
+          <div>· 冲突模组：sodium-neoforge-0.6.3.jar &amp; iris-neoforge-1.8.1.jar</div>
+          <div>· 调用栈：net.caffeinemc.mods.sodium.mixin.core.render.world.WorldRendererMixin</div>
+          <div>· 目标运行时：Java 21.0.5 (x64) · -Xmx4096M</div>
+          <div>· 建议修复：将 Sodium 更新至 0.6.5+ 或临时禁用不兼容渲染注入插件</div>
+        </div>
+      </div>
+      <div class="crash-modal-foot">
+        <button class="chip-btn is-active" data-toast="已定位冲突 Mod：Sodium" type="button">定位冲突 Mod</button>
+        <button class="chip-btn" id="btn-copy-crash-report" type="button">复制诊断日志</button>
+        <button class="chip-btn" data-toast="诊断报告已导出" type="button">导出报告</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer Removed cleanly per UI requirement -->
+
+  <!-- 3D Spatial Sub-Menu Portal Overlay (Uiverse tricky-lionfish-78 Mechanics) -->
+  <div class="portal-backdrop" id="portal-backdrop" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="portal-title">
+    <div class="portal-header">
+      <div>
+        <div class="portal-eyebrow" id="portal-eyebrow">RESOURCE PORTAL</div>
+        <h2 class="portal-title" id="portal-title">下载资源 <strong>DOWNLOAD</strong></h2>
+      </div>
+      <button class="portal-close" id="portal-close" type="button">
+        <span>关闭面板</span>
+        <span>[ ESC ]</span>
+      </button>
+    </div>
+
+    <div class="portal-grid" id="portal-grid"></div>
+
+    <div class="portal-hint">
+      <span>选择模块跳转</span>
+      <span>ESC 关闭面板</span>
+    </div>
+  </div>
+
+  <!-- Fullscreen Numbered Drawer Overlay (01 - 06) -->
+  <div class="drawer-overlay" id="drawer-overlay" aria-hidden="true" role="dialog" aria-modal="true" aria-label="全局功能索引">
+    <div class="drawer-top">
+      <button class="brand-btn" data-route="home" type="button" aria-label="返回主页">
+        <span class="brand-wordmark">
+          <span class="brand-letter-d">D</span><span class="brand-letter-cl">CL</span>
+        </span>
+      </button>
+      <button class="portal-close" id="btn-close-drawer" type="button">CLOSE ×</button>
+    </div>
+
+    <nav class="drawer-nav-wrap" aria-label="主功能导航">
+      <ul class="drawer-list">
+        <li>
+          <button class="drawer-link" data-route="home" type="button">
+            <span class="idx">01.</span>
+            <span class="label">启动总览 HOME</span>
+          </button>
+        </li>
+        <li>
+          <button class="drawer-link" data-portal="download" type="button">
+            <span class="idx">02.</span>
+            <span class="label">下载资源</span>
+          </button>
+        </li>
+        <li>
+          <button class="drawer-link" data-portal="manage" type="button">
+            <span class="idx">03.</span>
+            <span class="label">实例环境</span>
+          </button>
+        </li>
+        <li>
+          <button class="drawer-link" data-portal="diagnostics" type="button">
+            <span class="idx">04.</span>
+            <span class="label">运行诊断</span>
+          </button>
+        </li>
+      </ul>
+    </nav>
+
+    <div class="portal-hint">
+      <span>DumbCrisp Launcher</span>
+      <span>Snapshot1</span>
+    </div>
+  </div>
+
+  <dialog class="crash-modal-card launcher-dialog" id="resource-install-dialog" aria-labelledby="resource-install-title">
+    <div class="crash-modal-head">
+      <h2 class="crash-modal-title" id="resource-install-title">选择安装位置</h2>
+      <form method="dialog">
+        <button class="cc-btn cc-btn--topbar" type="submit" aria-label="返回" title="返回">
+          <span class="cc-box"><span class="cc-elem"><svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></span><span class="cc-elem"><svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></span></span>
+        </button>
+      </form>
+    </div>
+    <div class="crash-modal-body">
+      <p id="resource-install-name"></p>
+      <div class="install-target-wrap" id="resource-target-wrap" hidden>
+        <button class="install-target-trigger" id="resource-target-trigger" type="button" aria-expanded="false" aria-haspopup="listbox">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+          </svg>
+          <span class="install-target-label">
+            <strong id="resource-target-title">选择安装位置</strong>
+            <small id="resource-target-meta"></small>
+          </span>
+          <svg class="mirror-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="install-target-tray" id="resource-install-options" role="listbox" aria-label="可选安装位置"></div>
+      </div>
+      <p id="resource-install-status" role="status" aria-live="polite"></p>
+    </div>
+    <div class="crash-modal-foot">
+      <button class="cc-btn cc-btn--download resource-install-confirm" id="resource-install-browse" type="button" aria-label="安装在指定文件夹" title="安装在指定文件夹" disabled>
+        <span class="cc-box"><span class="cc-elem"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 10v6m-3-3h6"/></svg></span><span class="cc-elem"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 10v6m-3-3h6"/></svg></span></span>
+      </button>
+      <button class="cc-btn cc-btn--download resource-install-confirm" id="resource-install-confirm" type="button" aria-label="安装" title="安装" disabled>
+        <span class="cc-box"><span class="cc-elem"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m-4-4 4 4 4-4M5 16v4h14v-4"/></svg></span><span class="cc-elem"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m-4-4 4 4 4-4M5 16v4h14v-4"/></svg></span></span>
+      </button>
+    </div>
+  </dialog>
+
+  <dialog class="crash-modal-card launcher-dialog" id="microsoft-login-dialog" aria-labelledby="microsoft-login-title">
+    <div class="crash-modal-head"><h2 class="crash-modal-title" id="microsoft-login-title">微软登录</h2></div>
+    <div class="crash-modal-body">
+      <p id="microsoft-login-status" role="status" aria-live="polite"></p>
+      <input class="launcher-instance-select" id="microsoft-device-code" aria-label="微软设备授权码" readonly hidden>
+    </div>
+    <div class="crash-modal-foot">
+      <form method="dialog"><button class="chip-btn" type="submit">关闭</button></form>
+      <button class="chip-btn" id="microsoft-copy-code" type="button" hidden>复制授权码</button>
+      <button class="chip-btn is-active" id="microsoft-open-browser" type="button" hidden>打开微软登录页</button>
+    </div>
+  </dialog>
+
+  <!-- Toast Notification -->
+  <div class="toast-pill" id="toast-pill" role="status" aria-live="polite"></div>
+
+  <script src="scripts/bridge.js"></script>
+  <script src="scripts/views.js"></script>
+  <script src="scripts/app.js"></script>
+</body>
+</html>

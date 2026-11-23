@@ -55,6 +55,10 @@
           if (Array.isArray(msg.data.mirrors)) state.mirrors = msg.data.mirrors;
         } else if (msg.event === "workspace_refreshed" && msg.data) {
           applyBackendState(msg.data);
+        } else if (msg.event === "active_resources_ready" && msg.data) {
+          if (Array.isArray(msg.data.installedMods)) state.installedMods = msg.data.installedMods;
+          if (Array.isArray(msg.data.installedPacks)) state.installedPacks = msg.data.installedPacks;
+          if (Array.isArray(msg.data.crashLines)) state.crashLines = msg.data.crashLines;
         }
         hostListeners.forEach((fn) => {
           try { fn(msg.event, msg.data); } catch {}
@@ -138,6 +142,8 @@
     themeId: "obsidian-yellow",
     bgPatternId: "none",
     alwaysOnTop: false,
+    bypassSystemProxyOnDownload: false,
+    disableChineseResourceNames: false,
     mirrors: mirrorNodes.map((n) => ({ ...n, score: scoreMirrorNode(n) })),
     downloadTasks: [
       {
@@ -637,7 +643,7 @@
   trimCompletedDownloadTasks();
 
   const commandsWithoutStateRefresh = new Set([
-    "dismiss_download_ball", "open_folder", "launch_game", "cancel_launch", "export_crash_report", "open_launcher_logs",
+    "dismiss_download_ball", "set_feature_flags", "open_folder", "launch_game", "cancel_launch", "export_crash_report", "open_launcher_logs",
     "search_catalog", "search_catalog_page", "resolve_mod_project", "get_resource_detail_live", "get_resource_targets",
     "browse_resource_install_folder", "browse_java_install_folder", "probe_mirrors",
     "microsoft_begin", "microsoft_cancel", "open_microsoft_verification",
@@ -652,6 +658,11 @@
       const res = await invokeWebView2(cmd, payload);
       if (cmd === "get_state") {
         applyBackendState(res);
+      } else if (cmd === "dismiss_download_ball") {
+        state.hasUnseenDownloadBall = false;
+      } else if (cmd === "set_feature_flags" && res && typeof res === "object") {
+        if (typeof res.bypassSystemProxyOnDownload === "boolean") state.bypassSystemProxyOnDownload = res.bypassSystemProxyOnDownload;
+        if (typeof res.disableChineseResourceNames === "boolean") state.disableChineseResourceNames = res.disableChineseResourceNames;
       } else if (!commandsWithoutStateRefresh.has(cmd)) {
         try {
           const fresh = await invokeWebView2("get_state", {});
@@ -756,6 +767,18 @@
         state.bgPatternId = payload?.bgPatternId === "festive" ? "festive" : "none";
         return { bgPatternId: state.bgPatternId };
       }
+      case "set_feature_flags": {
+        if (typeof payload?.bypassSystemProxyOnDownload === "boolean") {
+          state.bypassSystemProxyOnDownload = payload.bypassSystemProxyOnDownload;
+        }
+        if (typeof payload?.disableChineseResourceNames === "boolean") {
+          state.disableChineseResourceNames = payload.disableChineseResourceNames;
+        }
+        return {
+          bypassSystemProxyOnDownload: state.bypassSystemProxyOnDownload,
+          disableChineseResourceNames: state.disableChineseResourceNames
+        };
+      }
       case "window_set_topmost": {
         state.alwaysOnTop = Boolean(payload?.pinned);
         return { alwaysOnTop: state.alwaysOnTop };
@@ -822,9 +845,27 @@
           username: acc.username,
           uuid: acc.uuid,
           type: acc.type,
-          avatar: acc.avatar
+          avatar: acc.avatar,
+          hasCustomSkin: Boolean(acc.hasCustomSkin),
+          skinModel: acc.skinModel || "default",
+          skinUrl: acc.skinUrl || ""
         };
         return state.account;
+      }
+      case "import_offline_skin": {
+        const acc = (state.accounts || []).find((a) => a.id === payload.id);
+        if (!acc) return null;
+        if (payload?.avatarDataUrl) acc.avatar = payload.avatarDataUrl;
+        if (payload?.skinDataUrl) acc.skinUrl = payload.skinDataUrl;
+        acc.hasCustomSkin = true;
+        acc.skinModel = payload?.skinModel || "default";
+        if (state.account && state.account.id === acc.id) {
+          state.account.avatar = acc.avatar;
+          state.account.skinUrl = acc.skinUrl || "";
+          state.account.hasCustomSkin = true;
+          state.account.skinModel = acc.skinModel;
+        }
+        return acc;
       }
       case "add_account": {
         const name = String((payload && payload.username) || "").trim() || `Player_${(state.accounts || []).length + 1}`;
@@ -1548,12 +1589,25 @@
     return liveDetailCache.get(`${catKey}:${itemId}`);
   }
 
+  function buildMcWikiUrl(versionId) {
+    const raw = String(versionId || "").trim();
+    let page = `Java版${raw}`;
+    if (/^b\d/i.test(raw)) page = `Java版Beta_${raw.slice(1)}`;
+    else if (/^a\d/i.test(raw)) page = `Java版Alpha_v${raw.slice(1)}`;
+    else if (/^c\d/i.test(raw)) page = `Java版Classic_${raw.slice(1)}`;
+    else if (/^inf-/i.test(raw)) page = `Java版Infdev_${raw.slice(4)}`;
+    else if (/^rd-/i.test(raw)) page = `Java版Pre-Classic_${raw}`;
+    return `https://zh.minecraft.wiki/w/${encodeURIComponent(page)}`;
+  }
+
   function getResourcePreview(catKey, itemId) {
     const raw = onlineCatalogCache.get(`${catKey}:${itemId}`) ||
       (state.catalog[catKey] || []).find(item => String(item.id) === String(itemId));
     const webUrl = raw?.webUrl || "";
-    const links = webUrl && raw?.source === "CurseForge" ? { curseforge: webUrl }
-      : webUrl && raw?.source === "Modrinth" ? { modrinth: webUrl } : {};
+    const links = catKey === "versions"
+      ? { mcwiki: buildMcWikiUrl(itemId) }
+      : webUrl && raw?.source === "CurseForge" ? { curseforge: webUrl }
+        : webUrl && raw?.source === "Modrinth" ? { modrinth: webUrl } : {};
     return {
       ...raw,
       catKey,
@@ -1765,7 +1819,7 @@
         source: state.mirrorSource,
         loaders: baseLoaders,
         links: {
-          mcwiki: `https://zh.minecraft.wiki/w/Java%E7%89%88${encodeURIComponent(raw.id)}`
+          mcwiki: buildMcWikiUrl(raw.id)
         },
         loaderTrees
       };
@@ -1916,14 +1970,22 @@
     };
   }
 
-  const readyPromise = isWebView2
-    ? invoke("get_state", {}).catch(() => state)
-    : typeof global.fetch === "function"
+  let readyPromise;
+  if (isWebView2) {
+    if (global.__DCL_BOOT_STATE__ && typeof global.__DCL_BOOT_STATE__ === "object") {
+      applyBackendState(global.__DCL_BOOT_STATE__);
+      readyPromise = Promise.resolve(state);
+    } else {
+      readyPromise = invoke("get_state", {}).catch(() => state);
+    }
+  } else {
+    readyPromise = typeof global.fetch === "function"
       ? global.fetch("assets/mod-names-zh-cn.json")
           .then(response => response.ok ? response.json() : [])
           .then(names => { modNames = Array.isArray(names) ? names : []; return state; })
           .catch(() => state)
       : Promise.resolve(state);
+  }
 
   async function resolveModProject(modInfo) {
     if (!modInfo) return null;

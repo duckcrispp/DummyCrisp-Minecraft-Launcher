@@ -13,6 +13,8 @@ public sealed class JavaManager
 {
     private readonly StorageService _storage;
     private readonly HttpClient _http;
+    public Func<HttpClient>? ResolveDownloadHttp { get; set; }
+    private HttpClient DownloadHttp => ResolveDownloadHttp?.Invoke() ?? _http;
 
     public JavaManager(StorageService storage, HttpClient http)
     {
@@ -393,7 +395,7 @@ public sealed class JavaManager
         string api = $"https://api.adoptium.net/v3/assets/latest/{featureVersion}/hotspot?os=windows&architecture=x64&image_type=jdk";
         using var req = new HttpRequestMessage(HttpMethod.Get, api);
         req.Headers.UserAgent.ParseAdd("DCL-Launcher/1.0");
-        using var resp = await _http.SendAsync(req, ct);
+        using var resp = await DownloadHttp.SendAsync(req, ct);
         resp.EnsureSuccessStatusCode();
         using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
         var first = doc.RootElement.EnumerateArray().FirstOrDefault();
@@ -410,7 +412,7 @@ public sealed class JavaManager
             string api = $"https://api.azul.com/metadata/v1/zulu/packages/?java_version={featureVersion}&os=windows&arch=x86&hw_bitness=64&archive_type=zip&java_package_type=jdk&javafx_bundled=false&release_status=ga&availability_types=CA&page=1&page_size=25";
             using var req = new HttpRequestMessage(HttpMethod.Get, api);
             req.Headers.UserAgent.ParseAdd("DCL-Launcher/1.0");
-            using var resp = await _http.SendAsync(req, ct);
+            using var resp = await DownloadHttp.SendAsync(req, ct);
             resp.EnsureSuccessStatusCode();
             using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
             var first = doc.RootElement.EnumerateArray().FirstOrDefault(p => p.TryGetProperty("name", out var n) &&
@@ -422,7 +424,7 @@ public sealed class JavaManager
                 if (!string.IsNullOrWhiteSpace(dlUrl))
                 {
                     string uuid = first.GetProperty("package_uuid").GetString()!;
-                    using var detail = JsonDocument.Parse(await _http.GetStringAsync("https://api.azul.com/metadata/v1/zulu/packages/" + Guid.Parse(uuid), ct));
+                    using var detail = JsonDocument.Parse(await DownloadHttp.GetStringAsync("https://api.azul.com/metadata/v1/zulu/packages/" + Guid.Parse(uuid), ct));
                     return new(dlUrl, fileName, Digest(detail.RootElement.GetProperty("sha256_hash").GetString()!));
                 }
             }
@@ -432,20 +434,20 @@ public sealed class JavaManager
         {
             if (featureVersion is not (11 or 17 or 21 or 25))
                 throw new InvalidOperationException($"Microsoft OpenJDK 仅提供 Java 11 / 17 / 21 / 25 LTS 版本");
-            string page = await _http.GetStringAsync("https://learn.microsoft.com/en-us/java/openjdk/download", ct);
+            string page = await DownloadHttp.GetStringAsync("https://learn.microsoft.com/en-us/java/openjdk/download", ct);
             var match = System.Text.RegularExpressions.Regex.Match(page,
                 $@"https://aka\.ms/download-jdk/(microsoft-jdk-{featureVersion}(?:\.[0-9]+)+-windows-x64\.zip)\.sha256sum\.txt",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             if (!match.Success) throw new InvalidDataException("未找到 Microsoft 发布的 Windows x64 SHA-256");
             string name = match.Groups[1].Value;
-            return new("https://aka.ms/download-jdk/" + name, name, Digest(await _http.GetStringAsync(match.Value, ct)));
+            return new("https://aka.ms/download-jdk/" + name, name, Digest(await DownloadHttp.GetStringAsync(match.Value, ct)));
         }
         if (v == "oracle")
         {
             string url = $"https://download.oracle.com/java/{featureVersion}/latest/jdk-{featureVersion}_windows-x64_bin.zip";
             try
             {
-                return new(url, $"oracle-jdk-{featureVersion}_windows-x64_bin.zip", Digest(await _http.GetStringAsync(url + ".sha256", ct)));
+                return new(url, $"oracle-jdk-{featureVersion}_windows-x64_bin.zip", Digest(await DownloadHttp.GetStringAsync(url + ".sha256", ct)));
             }
             catch (HttpRequestException ex) when (ex.StatusCode is System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.Forbidden)
             {

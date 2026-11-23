@@ -84,7 +84,7 @@
 为了在浏览器中快速预览、逐个打磨手感，再整体打包为 Tauri 桌面应用，前端拆分为以下独立可调试模块：
 
 ```text
-D:\MC\DummyCrisp\ui-prototype\
+DummyCrisp/ui-prototype/
 ├── index.html                  # 主入口外壳与路由视图调度
 ├── styles\
 │   ├── tokens.css              # 主题变量（首发黄黑 + 主题切换器）

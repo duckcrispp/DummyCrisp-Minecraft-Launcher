@@ -80,6 +80,22 @@ public sealed class AccountManager
         }
     }
 
+    public AccountEntry? SetOfflineSkin(string id, string skinPath, string skinModel, string avatarRoute)
+    {
+        lock (_accountsLock)
+        {
+            var acc = _store.Accounts.FirstOrDefault(a => a.Id == id);
+            if (acc == null) return null;
+            if (acc.Type.Contains("Microsoft", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("正版账号请在 Minecraft 官网或微软账户中修改皮肤。");
+            acc.SkinPath = skinPath;
+            acc.SkinModel = skinModel == "slim" ? "slim" : "default";
+            acc.Avatar = avatarRoute;
+            _storage.SaveAccounts(_store);
+            return acc;
+        }
+    }
+
     public sealed record DeviceCode(string Code, string UserCode, string VerificationUri, int Interval, DateTimeOffset ExpiresAt);
 
     private const string MicrosoftEndpoint = "https://login.microsoftonline.com/consumers/oauth2/v2.0/";

@@ -25,7 +25,7 @@ public sealed partial class DownloadManager
                 req.Headers.Range = new RangeHeaderValue(offset, end);
                 if (tag != null) req.Headers.IfRange = new RangeConditionHeaderValue(EntityTagHeaderValue.Parse(tag));
             }
-            using var response = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, idle.Token);
+            using var response = await ActiveHttp.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, idle.Token);
             CheckStatus(response, url);
             observeHost((response.RequestMessage?.RequestUri ?? req.RequestUri)!.Host);
             long? count = response.Content.Headers.ContentLength;
@@ -125,7 +125,7 @@ public sealed partial class DownloadManager
             try
             {
                 using var lease = await _health.EnterAsync(url, budget.Token);
-                using var response = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, budget.Token);
+                using var response = await ActiveHttp.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, budget.Token);
                 CheckStatus(response, url);
                 long firstByte = clock.ElapsedMilliseconds;
                 byte[] bytes = await response.Content.ReadAsByteArrayAsync(budget.Token);

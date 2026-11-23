@@ -610,8 +610,15 @@ internal static class ResourceCatalog
                 }
             }
         }
+        // Never expose a synthetic "default" loader tab alongside real loaders; if only "default" exists, hide loader tabs
+        bool hasRealLoaders = groups.Keys.Any(k => !k.Equals("default", StringComparison.OrdinalIgnoreCase));
+        if (!hideLoaders && hasRealLoaders)
+        {
+            groups.Remove("default");
+        }
+        bool effectiveHideLoaders = hideLoaders || !hasRealLoaders;
         item["catKey"] = category;
-        item["hideLoaders"] = hideLoaders;
+        item["hideLoaders"] = effectiveHideLoaders;
         EnrichExternalLinks(category, item.GetValueOrDefault("slug")?.ToString() ?? "", item.GetValueOrDefault("enName")?.ToString() ?? "", links);
         item["links"] = links;
         item["loaders"] = groups.Keys.DefaultIfEmpty("default").ToArray();

@@ -6,11 +6,6 @@
   <title>DCL — Minecraft 启动器前端交互原型</title>
   <link rel="icon" type="image/png" href="assets/app-icon.png">
 
-  <!-- Progressive Typography Enhancement (System Fallbacks Ready Offline) -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@500;700&family=Outfit:wght@500;600;700;800&family=Plus+Jakarta+Sans:wght@400;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
-
   <link rel="stylesheet" href="styles/tokens.css">
   <link rel="stylesheet" href="styles/layout.css">
   <link rel="stylesheet" href="styles/card-3d.css">
@@ -73,7 +68,7 @@
 
         <span class="topbar-sep" aria-hidden="true"></span>
 
-        <button class="brand-btn" data-route="home" type="button" aria-label="返回主页">
+        <button class="brand-btn" data-dcl-easter-egg type="button" aria-label="DummyCrisp Minecraft Launcher">
           <span class="brand-wordmark">
             <span class="brand-letter-d">D</span><span class="brand-letter-cl">CL</span>
           </span>
@@ -192,7 +187,7 @@
     <div class="portal-header">
       <div>
         <div class="portal-eyebrow" id="portal-eyebrow">RESOURCE PORTAL</div>
-        <h2 class="portal-title" id="portal-title">下载资源 <strong>DOWNLOAD</strong></h2>
+        <h2 class="portal-title" id="portal-title">资源下载 <strong>DOWNLOAD</strong></h2>
       </div>
       <button class="portal-close" id="portal-close" type="button">
         <span>关闭面板</span>
@@ -211,25 +206,25 @@
   <!-- Fullscreen Numbered Drawer Overlay (01 - 06) -->
   <div class="drawer-overlay" id="drawer-overlay" aria-hidden="true" role="dialog" aria-modal="true" aria-label="全局功能索引">
     <div class="drawer-top">
-      <button class="brand-btn" data-route="home" type="button" aria-label="返回主页">
+      <button class="brand-btn" data-dcl-easter-egg type="button" aria-label="DummyCrisp Minecraft Launcher">
         <span class="brand-wordmark">
           <span class="brand-letter-d">D</span><span class="brand-letter-cl">CL</span>
         </span>
       </button>
       <div class="drawer-top-actions">
+        <button class="emu-btn emu-btn--drawer-pin" id="btn-toggle-pin" type="button" aria-label="窗口置顶" aria-pressed="false">
+          <span class="filled" aria-hidden="true"></span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 17v5"/>
+            <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>
+          </svg>
+        </button>
         <button class="win-ctrl-btn win-ctrl-btn--drawer-close" id="btn-close-drawer" type="button" aria-label="关闭导航" title="关闭">
           <span class="filled" aria-hidden="true"></span>
           <svg class="win-icon" viewBox="0 0 24 24" aria-hidden="true">
             <path class="ico-cross-a" d="M7 7l10 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
             <path class="ico-cross-b" d="M17 7L7 17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
             <circle class="ico-cross-core" cx="12" cy="12" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/>
-          </svg>
-        </button>
-        <button class="emu-btn emu-btn--drawer-pin" id="btn-toggle-pin" type="button" aria-label="窗口置顶" aria-pressed="false">
-          <span class="filled" aria-hidden="true"></span>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M12 17v5"/>
-            <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>
           </svg>
         </button>
       </div>
@@ -246,7 +241,7 @@
         <li>
           <button class="drawer-link" data-portal="download" type="button">
             <span class="idx">02.</span>
-            <span class="label">下载资源</span>
+            <span class="label">资源下载</span>
           </button>
         </li>
         <li>
@@ -265,9 +260,15 @@
     </nav>
 
     <div class="portal-hint">
-      <span>DumbCrisp Launcher</span>
+      <span>DummyCrisp Minecraft Launcher</span>
       <span>Snapshot1</span>
     </div>
+  </div>
+
+  <!-- DCL Logo Easter-Egg Star Popover (spotty-zebra-83 Shake Tooltip) -->
+  <div class="dcl-star-popover" id="dcl-star-popover" role="dialog" aria-label="支持 DummyCrisp Minecraft Launcher" aria-hidden="true">
+    <img class="dcl-star-icon" src="assets/app-icon.png" alt="DummyCrisp 图标" />
+    <span class="dcl-star-text">心情好不如就点个<button class="dcl-star-link" id="btn-dcl-github-star" type="button">star</button>吧！ヾ(≧▽≦*)o</span>
   </div>
 
   <dialog class="crash-modal-card launcher-dialog" id="resource-install-dialog" aria-labelledby="resource-install-title">
@@ -381,6 +382,15 @@
       <button class="dcl-cp-swatch" data-cp-swatch="#3498db" style="background:#3498db;" type="button" aria-label="天际蓝"></button>
       <button class="dcl-cp-swatch" data-cp-swatch="#9b59b6" style="background:#9b59b6;" type="button" aria-label="星云紫"></button>
     </div>
+  </div>
+
+  <!-- Pure Home Mode Top Drag Strip & Magnifier Overscroll Cue -->
+  <div class="pure-home-drag-strip" id="pure-home-drag-strip" aria-hidden="true"></div>
+  <div class="pure-home-cue" id="pure-home-cue" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="11" cy="11" r="7"/>
+      <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+    </svg>
   </div>
 
   <!-- Toast Notification -->

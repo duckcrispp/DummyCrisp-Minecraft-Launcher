@@ -152,6 +152,23 @@ public sealed class StorageService
         return File.Exists(path) ? new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete) : null;
     }
 
+    public const string SkinAssetRoute = "dcl-skin/";
+    public string SkinsDir => Path.Combine(CacheDir, "skins");
+
+    internal Stream? OpenSkinAsset(string rawName)
+    {
+        int q = rawName.IndexOf('?');
+        string name = q >= 0 ? rawName[..q] : rawName;
+        if (string.IsNullOrWhiteSpace(name) || name.Length > 120 || !name.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
+            return null;
+        if (name.Contains('/') || name.Contains('\\') || name.Contains("..", StringComparison.Ordinal))
+            return null;
+        string path = Path.Combine(SkinsDir, name);
+        if (!File.Exists(path)) return null;
+        // Return an in-memory copy so WebView2 never holds a file handle lock on disk
+        return new MemoryStream(File.ReadAllBytes(path), writable: false);
+    }
+
     public void EnsureDirectories()
     {
         Directory.CreateDirectory(DclDir);
@@ -172,16 +189,45 @@ public sealed class StorageService
         Directory.CreateDirectory(SavesDir);
     }
 
+    private readonly StringBuilder _pendingLogs = new();
+    private long _lastLogFlushTick;
+
     public void Log(string message)
     {
         try
         {
+            string line = $"[{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff zzz}] {RedactLogSecrets(message)}{Environment.NewLine}";
+            bool isGameStream = message.StartsWith("游戏 [", StringComparison.Ordinal) &&
+                (message.Contains("/stdout]", StringComparison.Ordinal) || message.Contains("/stderr]", StringComparison.Ordinal));
             lock (_logLock)
             {
-                File.AppendAllText(SessionLogPath, $"[{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff zzz}] {RedactLogSecrets(message)}{Environment.NewLine}", Encoding.UTF8);
+                _pendingLogs.Append(line);
+                long now = Environment.TickCount64;
+                if (!isGameStream || _pendingLogs.Length >= 8192 || now - _lastLogFlushTick >= 250)
+                {
+                    FlushLogsLocked();
+                }
             }
         }
         catch { }
+    }
+
+    public void FlushLogs()
+    {
+        try
+        {
+            lock (_logLock) FlushLogsLocked();
+        }
+        catch { }
+    }
+
+    private void FlushLogsLocked()
+    {
+        if (_pendingLogs.Length == 0) return;
+        Directory.CreateDirectory(LogsDir);
+        File.AppendAllText(SessionLogPath, _pendingLogs.ToString(), Encoding.UTF8);
+        _pendingLogs.Clear();
+        _lastLogFlushTick = Environment.TickCount64;
     }
 
     private static string RedactLogSecrets(string message) =>

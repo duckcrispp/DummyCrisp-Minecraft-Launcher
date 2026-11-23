@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -25,7 +26,8 @@ public sealed class GameLauncher
         string customJvmArgs,
         Action<int>? onProgress,
         CancellationToken ct,
-        CancellationToken preSpawnCt = default)
+        CancellationToken preSpawnCt = default,
+        IReadOnlyList<string>? extraJvmArgs = null)
     {
         using var setupCts = CancellationTokenSource.CreateLinkedTokenSource(ct, preSpawnCt);
         var setupCt = setupCts.Token;
@@ -175,10 +177,15 @@ public sealed class GameLauncher
         string token = account?.AccessToken is { Length: > 0 } ? account.AccessToken : "00000000000000000000000000000000";
         string userType = (account?.Type.Contains("Microsoft") ?? false) ? "msa" : "legacy";
 
+        var (_, availRamMb) = SystemMemoryHelper.GetSystemMemoryMb();
+        bool usesZgc = !string.IsNullOrWhiteSpace(customJvmArgs) &&
+            customJvmArgs.Contains("UseZGC", StringComparison.OrdinalIgnoreCase);
+        int initialHeapMb = SystemMemoryHelper.ComputeInitialHeapMb(memoryMb, availRamMb, usesZgc);
+
         var args = new List<string>
         {
             $"-Xmx{memoryMb}M",
-            $"-Xms{Math.Min(512, memoryMb)}M",
+            $"-Xms{initialHeapMb}M",
             "-Dfile.encoding=UTF-8",
             $"-Djava.library.path=\"{nativesDir}\""
         };
@@ -194,6 +201,15 @@ public sealed class GameLauncher
             if (major > 0 && major < 15 && arg.Equals("-XX:+UseZGC", StringComparison.OrdinalIgnoreCase))
                 return false;
             return true;
+        }
+
+        if (extraJvmArgs is { Count: > 0 })
+        {
+            foreach (var extra in extraJvmArgs)
+            {
+                if (!string.IsNullOrWhiteSpace(extra))
+                    args.Add(extra.Contains(' ') ? $"\"{extra}\"" : extra);
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(customJvmArgs))
@@ -251,7 +267,16 @@ public sealed class GameLauncher
                 ["library_directory"] = resolvedLibsDir, ["classpath_separator"] = Path.PathSeparator.ToString(),
                 ["classpath"] = classpath, ["launcher_name"] = "DCL", ["launcher_version"] = "1.0"
             };
-            var packJvm = new List<string> { $"-Xmx{memoryMb}M", $"-Xms{Math.Min(512, memoryMb)}M", "-Dfile.encoding=UTF-8" };
+            var packJvm = new List<string> { $"-Xmx{memoryMb}M", $"-Xms{initialHeapMb}M", "-Dfile.encoding=UTF-8" };
+            if (extraJvmArgs is { Count: > 0 })
+            {
+                foreach (var extra in extraJvmArgs)
+                {
+                    if (!string.IsNullOrWhiteSpace(extra))
+                        packJvm.Add(extra);
+                }
+            }
+
             if (!string.IsNullOrWhiteSpace(customJvmArgs))
             {
                 foreach (string arg in SplitArgs(customJvmArgs))
@@ -305,6 +330,20 @@ public sealed class GameLauncher
         }
 
         onProgress?.Invoke(90);
+        int reportedPct = 90;
+        void ReportStage(int pct)
+        {
+            while (true)
+            {
+                int cur = Volatile.Read(ref reportedPct);
+                if (pct <= cur) return;
+                if (Interlocked.CompareExchange(ref reportedPct, pct, cur) == cur)
+                {
+                    onProgress?.Invoke(pct);
+                    return;
+                }
+            }
+        }
         var logTail = new List<string>();
         void RecordOutput(string? line, string stream)
         {
@@ -315,6 +354,21 @@ public sealed class GameLauncher
                 logTail.Add(line);
                 if (logTail.Count > 120) logTail.RemoveAt(0);
             }
+            if (reportedPct < 99)
+            {
+                if (line.Contains("Backend library: LWJGL", StringComparison.OrdinalIgnoreCase) ||
+                    line.Contains("OpenAL initialized", StringComparison.OrdinalIgnoreCase) ||
+                    line.Contains("Created: ", StringComparison.Ordinal))
+                    ReportStage(98);
+                else if (line.Contains("Setting user:", StringComparison.OrdinalIgnoreCase) ||
+                         line.Contains("Render thread", StringComparison.OrdinalIgnoreCase) ||
+                         line.Contains("ModLauncher running", StringComparison.OrdinalIgnoreCase))
+                    ReportStage(95);
+                else if (line.Contains("Loading Minecraft", StringComparison.OrdinalIgnoreCase) ||
+                         line.Contains("FabricLoader", StringComparison.OrdinalIgnoreCase) ||
+                         line.Contains("FML", StringComparison.Ordinal))
+                    ReportStage(92);
+            }
             _storage.Log($"游戏 [{inst.Id}/{stream}] {line}");
         }
         _storage.Log($"游戏 [{inst.Id}] PID {proc.Id}");
@@ -323,7 +377,7 @@ public sealed class GameLauncher
         proc.BeginOutputReadLine();
         proc.BeginErrorReadLine();
 
-        // 持续监测直到 Java 游戏界面正式被唤醒（MainWindowHandle != 0）；在此之前点击「取消」可直接终止 Java 进程
+        // 持续监测直到 Java 游戏界面正式被唤醒（MainWindowHandle 或 Win32 EnumWindows 检测到可见游戏窗口）；在此之前点击「取消」可直接终止 Java 进程
         bool cancelledBeforeWindow = false;
         using var windowWatchCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var windowWatchTask = Task.Run(async () =>
@@ -343,10 +397,13 @@ public sealed class GameLauncher
                     {
                         if (proc.HasExited) return;
                         proc.Refresh();
-                        if (proc.MainWindowHandle != IntPtr.Zero)
+                        IntPtr hwnd = proc.MainWindowHandle != IntPtr.Zero
+                            ? proc.MainWindowHandle
+                            : FindVisibleProcessWindow(proc.Id);
+                        if (hwnd != IntPtr.Zero)
                         {
-                            _storage.Log($"游戏窗口已唤醒 [{inst.Id}] (PID {proc.Id}, HWND 0x{proc.MainWindowHandle.ToInt64():X})");
-                            onProgress?.Invoke(100);
+                            _storage.Log($"游戏窗口已唤醒 [{inst.Id}] (PID {proc.Id}, HWND 0x{hwnd.ToInt64():X})");
+                            ReportStage(100);
                             return;
                         }
                     }
@@ -354,7 +411,7 @@ public sealed class GameLauncher
                     {
                         return;
                     }
-                    await Task.Delay(180, windowWatchCts.Token);
+                    await Task.Delay(160, windowWatchCts.Token);
                 }
             }
             catch (OperationCanceledException) { }
@@ -363,6 +420,7 @@ public sealed class GameLauncher
         await proc.WaitForExitAsync(ct);
         windowWatchCts.Cancel();
         try { await windowWatchTask; } catch { }
+        _storage.FlushLogs();
 
         if (cancelledBeforeWindow || preSpawnCt.IsCancellationRequested)
         {
@@ -418,9 +476,9 @@ public sealed class GameLauncher
         string latestLog = Path.Combine(gameDir, "logs", "latest.log");
 
         string content = "";
-        if (latestCrash != null) content = File.ReadAllText(latestCrash, Encoding.UTF8);
-        else if (File.Exists(latestLog)) content = File.ReadAllText(latestLog, Encoding.UTF8);
-        else if (runtimeLines != null) content = string.Join('\n', runtimeLines);
+        if (latestCrash != null) content = ReadTextShared(latestCrash);
+        else if (File.Exists(latestLog)) content = ReadTextShared(latestLog);
+        if (string.IsNullOrWhiteSpace(content) && runtimeLines != null) content = string.Join('\n', runtimeLines);
 
         if (string.IsNullOrWhiteSpace(content))
         {
@@ -444,5 +502,50 @@ public sealed class GameLauncher
 
         output.AddRange(errorLines.Take(5));
         return output;
+    }
+
+    private static string ReadTextShared(string path)
+    {
+        try
+        {
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var sr = new StreamReader(fs, Encoding.UTF8);
+            return sr.ReadToEnd();
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+    [StructLayout(LayoutKind.Sequential)]
+    private struct WinRect { public int Left, Top, Right, Bottom; }
+
+    [DllImport("user32.dll")]
+    private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+    [DllImport("user32.dll")]
+    private static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll")]
+    private static extern bool GetWindowRect(IntPtr hWnd, out WinRect lpRect);
+
+    private static IntPtr FindVisibleProcessWindow(int pid)
+    {
+        IntPtr found = IntPtr.Zero;
+        EnumWindows((hWnd, _) =>
+        {
+            if (!IsWindowVisible(hWnd)) return true;
+            GetWindowThreadProcessId(hWnd, out uint winPid);
+            if ((int)winPid != pid) return true;
+            if (GetWindowRect(hWnd, out var rc) && (rc.Right - rc.Left) >= 160 && (rc.Bottom - rc.Top) >= 120)
+            {
+                found = hWnd;
+                return false;
+            }
+            return true;
+        }, IntPtr.Zero);
+        return found;
     }
 }

@@ -15,10 +15,10 @@
 
 ---
 
-## 2. 建议目录结构（`D:\MC\DummyCrisp`）
+## 2. 建议目录结构（`DummyCrisp/`）
 
 ```text
-D:\MC\DummyCrisp\
+DummyCrisp/
 ├── docs\                   # 架构设计、协议与接口文档
 ├── ui-prototype\           # 纯 HTML/CSS/JS 交互原型（可在浏览器直接打开调试）
 ├── src-tauri\              # 后续打包阶段的 Rust 后端与 Tauri 配置

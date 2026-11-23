@@ -330,15 +330,45 @@
       </button>`;
   }
 
-  function renderTitlePair(cnName, enName) {
-    const cn = String(cnName || "").trim();
+  function shouldDisableCnNames(state) {
+    if (state && typeof state.disableChineseResourceNames === "boolean") {
+      return state.disableChineseResourceNames;
+    }
+    return Boolean(
+      global.LauncherBridge &&
+      global.LauncherBridge.getStateSync &&
+      global.LauncherBridge.getStateSync().disableChineseResourceNames
+    );
+  }
+
+  function renderTitlePair(cnName, enName, disableCn) {
+    const hideCn = typeof disableCn === "boolean" ? disableCn : shouldDisableCnNames();
+    const rawCn = String(cnName || "").trim();
+    const cn = hideCn ? "" : rawCn;
     const en = String(enName || "").trim();
     if (cn && !en.includes(cn)) {
       return `
         <span class="data-row-title">${esc(cn)}</span>
         <span class="row-en-name">${esc(en)}</span>`;
     }
-    return `<span class="data-row-title">${esc(en || cn)}</span>`;
+    return `<span class="data-row-title">${esc(en || rawCn)}</span>`;
+  }
+
+  /* Default Feature Toggle Switch (uiverse.io/Galahhad/happy-warthog-87)
+     All future feature toggle switches MUST use this component. */
+  function renderFeatureSwitch(id, checked, ariaLabel, extraAttrs) {
+    return `
+      <label class="dcl-feature-switch" for="${esc(id)}">
+        <input
+          type="checkbox"
+          class="dcl-feature-switch__input"
+          id="${esc(id)}"
+          aria-label="${esc(ariaLabel)}"
+          ${checked ? "checked" : ""}
+          ${extraAttrs || ""}
+        />
+        <span class="dcl-feature-switch__slider" aria-hidden="true"></span>
+      </label>`;
   }
 
   function renderFilterBtn(isActive) {
@@ -852,7 +882,7 @@
   /* Crisp category line emblems for 3D sub-module cards */
   const CARD_ICONS = {
     cube: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8.5 4.9v8.2L12 21l-8.5-4.9V7.9L12 3z"/><path d="M12 12l8.5-4.1M12 12v9M12 12L3.5 7.9"/></svg>`,
-    puzzle: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M19.4 13a1.65 1.65 0 0 0 .1 2.2l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.65 1.65 0 0 0-2.2.1 1.65 1.65 0 0 0-.5 1.2V20a2 2 0 1 1-4 0v-.2a1.65 1.65 0 0 0-1-1.5 1.65 1.65 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.65 1.65 0 0 0 .3-1.8 1.65 1.65 0 0 0-1.5-1H4a2 2 0 1 1 0-4h.2a1.65 1.65 0 0 0 1.5-1 1.65 1.65 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.65 1.65 0 0 0 1.8.3h.1a1.65 1.65 0 0 0 1-1.5V4a2 2 0 1 1 4 0v.2a1.65 1.65 0 0 0 1 1.5 1.65 1.65 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.65 1.65 0 0 0-.3 1.8v.1a1.65 1.65 0 0 0 1.5 1H20a2 2 0 1 1 0 4h-.2a1.65 1.65 0 0 0-1.4 0z"/></svg>`,
+    puzzle: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M19.439 7.85c-.049.322.059.648.289.878l1.568 1.568c.47.47.706 1.087.706 1.704s-.235 1.233-.706 1.704l-1.611 1.611a.98.98 0 0 1-.837.276c-.47-.07-.802-.48-.968-.925a2.501 2.501 0 1 0-3.214 3.214c.446.166.855.497.925.968a.979.979 0 0 1-.276.837l-1.61 1.61a2.404 2.404 0 0 1-1.705.707 2.402 2.402 0 0 1-1.704-.706l-1.568-1.568a1.026 1.026 0 0 0-.877-.29c-.493.074-.84.504-1.02.968a2.5 2.5 0 1 1-3.237-3.237c.464-.18.894-.527.967-1.02a1.026 1.026 0 0 0-.289-.877l-1.568-1.568A2.402 2.402 0 0 1 1.998 12c0-.617.236-1.234.706-1.704L4.315 8.685a.98.98 0 0 1 .837-.276c.47.07.802.48.968.925a2.501 2.501 0 1 0 3.214-3.214c-.446-.166-.855-.497-.925-.968a.979.979 0 0 1 .276-.837l1.61-1.61a2.404 2.404 0 0 1 1.705-.707 2.402 2.402 0 0 1 1.704.706l1.568 1.568c.23.23.556.338.877.29.493-.074.84-.504 1.02-.968a2.5 2.5 0 1 1 3.237 3.237c-.464.18-.894.527-.967 1.02Z"/></svg>`,
     pack: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="M21 15l-5-5-6 6-3-3-4 4"/></svg>`,
     sun: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>`,
     box: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="M3.3 7l8.7 5 8.7-5M12 22V12M7.5 4.21l9 5.19"/></svg>`,
@@ -1047,9 +1077,10 @@
             <div class="quick-setting-block" style="margin-bottom:0;">
               <label class="quick-field-label" for="quick-jvm-args">JVM 启动参数</label>
               <div class="quick-jvm-presets" style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
-                <button class="chip-btn page-pill ${(effectiveJvmArgs || "").includes("UseZGC") ? "is-active" : ""}" data-quick-jvm-preset="-XX:+UseZGC -XX:+ZGenerational -Dfile.encoding=UTF-8" type="button">Gen-ZGC</button>
-                <button class="chip-btn page-pill ${(effectiveJvmArgs || "").includes("UseG1GC") ? "is-active" : ""}" data-quick-jvm-preset="-XX:+UseG1GC -XX:MaxGCPauseMillis=30 -Dfile.encoding=UTF-8" type="button">G1GC</button>
-                <button class="chip-btn page-pill ${(effectiveJvmArgs || "").includes("UseShenandoahGC") ? "is-active" : ""}" data-quick-jvm-preset="-XX:+UseShenandoahGC -Dfile.encoding=UTF-8" type="button">Shenandoah</button>
+                <button class="chip-btn page-pill ${(effectiveJvmArgs || "").includes("ZGenerational") ? "is-active" : ""}" data-quick-jvm-preset="-XX:+UseZGC -XX:+ZGenerational -XX:+DisableExplicitGC -Dfile.encoding=UTF-8" type="button">Gen-ZGC</button>
+                <button class="chip-btn page-pill ${(effectiveJvmArgs || "").includes("UseZGC") && !(effectiveJvmArgs || "").includes("ZGenerational") ? "is-active" : ""}" data-quick-jvm-preset="-XX:+UseZGC -XX:+DisableExplicitGC -Dfile.encoding=UTF-8" type="button">ZGC</button>
+                <button class="chip-btn page-pill ${(effectiveJvmArgs || "").includes("UseG1GC") ? "is-active" : ""}" data-quick-jvm-preset="-XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=50 -XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC -XX:G1NewSizePercent=20 -XX:G1ReservePercent=15 -XX:InitiatingHeapOccupancyPercent=45 -Dfile.encoding=UTF-8" type="button">G1GC</button>
+                <button class="chip-btn page-pill ${(effectiveJvmArgs || "").includes("UseShenandoahGC") ? "is-active" : ""}" data-quick-jvm-preset="-XX:+UseShenandoahGC -XX:+DisableExplicitGC -Dfile.encoding=UTF-8" type="button">Shenandoah</button>
               </div>
               <div class="jvm-textarea-row">
                 <textarea class="quick-jvm-textarea" id="quick-jvm-args" placeholder="点击输入文本……" rows="2">${esc(effectiveJvmArgs)}</textarea>
@@ -1067,7 +1098,7 @@
             <div class="quick-panel-title"><span>Mod 管理</span> · ${state.installedMods.length}</div>
             ${renderCollapseBtn("data-quick-close", "收起")}
           </div>
-          ${renderModManagerBody(state.installedMods, viewOpts && viewOpts.modQuery, (viewOpts && viewOpts.modPage) || 1, true)}
+          ${renderModManagerBody(state.installedMods, viewOpts && viewOpts.modQuery, (viewOpts && viewOpts.modPage) || 1, true, Boolean(viewOpts && viewOpts.modOnlyDisabled))}
         </div>
       </div>`;
     }
@@ -1202,16 +1233,17 @@
     `;
   }
 
-  function renderModManagerBody(allMods, modQuery, modPage, isCompact) {
+  function renderModManagerBody(allMods, modQuery, modPage, isCompact, onlyDisabled) {
     const q = (modQuery || "").trim().toLowerCase();
     const filtered = (allMods || []).filter(
       (m) =>
-        !q ||
-        (m.name || "").toLowerCase().includes(q) ||
-        (m.cnName || "").toLowerCase().includes(q) ||
-        global.LauncherBridge.namePinyinMatches?.(q, m.cnName, m.pinyin) ||
-        (m.file || "").toLowerCase().includes(q) ||
-        (m.version || "").toLowerCase().includes(q)
+        (!onlyDisabled || !m.enabled) &&
+        (!q ||
+          (m.name || "").toLowerCase().includes(q) ||
+          (m.cnName || "").toLowerCase().includes(q) ||
+          global.LauncherBridge.namePinyinMatches?.(q, m.cnName, m.pinyin) ||
+          (m.file || "").toLowerCase().includes(q) ||
+          (m.version || "").toLowerCase().includes(q))
     );
     const PAGE_SIZE = 20;
     const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
@@ -1252,6 +1284,20 @@
           <input class="warm-search-input ${modQuery ? "has-value" : ""}" id="${searchId}" type="text" required value="${esc(modQuery || "")}">
           <label class="warm-search-label" for="${searchId}">${renderWavyChars("点击输入文本……")}</label>
         </div>
+        <button
+          class="emu-btn emu-btn--sm mod-disabled-filter-btn ${onlyDisabled ? "is-active" : ""}"
+          data-toggle-mod-disabled-filter
+          data-tooltip="${onlyDisabled ? "显示全部 Mod" : "仅查看禁用 Mod"}"
+          aria-label="仅查看禁用 Mod"
+          aria-pressed="${onlyDisabled ? "true" : "false"}"
+          type="button"
+        >
+          <span class="filled" aria-hidden="true"></span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="9"/>
+            <line x1="5.6" y1="5.6" x2="18.4" y2="18.4"/>
+          </svg>
+        </button>
       </div>
 
       ${pagerHtml}
@@ -1259,9 +1305,11 @@
       <div class="data-table-list">
         ${
           items
-            .map(
-              (m, idx) => `
-          <div class="data-row data-row--modmanage is-clickable-mod ${isCompact ? "is-compact" : ""} ${m.enabled ? "" : "is-disabled-item"} v-row-reveal" style="--v-idx:${Math.min(idx, 10)};" data-mod-row="${esc(m.id)}" data-open-mod-detail="${esc(m.id)}" data-mod-slug="${esc(m.modId || "")}" data-mod-name="${esc(m.name || "")}" data-mod-file="${esc(m.file || "")}" role="button" tabindex="0" aria-label="查看 ${esc(m.cnName || m.name)} 详情">
+            .map((m, idx) => {
+              const disableCn = shouldDisableCnNames();
+              const modLabel = disableCn ? (m.name || m.cnName) : (m.cnName || m.name);
+              return `
+          <div class="data-row data-row--modmanage is-clickable-mod ${isCompact ? "is-compact" : ""} ${m.enabled ? "" : "is-disabled-item"} v-row-reveal" style="--v-idx:${Math.min(idx, 10)};" data-mod-row="${esc(m.id)}" data-open-mod-detail="${esc(m.id)}" data-mod-slug="${esc(m.modId || "")}" data-mod-name="${esc(m.name || "")}" data-mod-file="${esc(m.file || "")}" role="button" tabindex="0" aria-label="查看 ${esc(modLabel)} 详情">
             <span class="row-progress-bg" aria-hidden="true"></span>
             <div class="row-left">
               <div class="row-official-icon">
@@ -1269,7 +1317,7 @@
               </div>
               <div class="mod-text-col">
                 <div class="marquee-clip" data-marquee-clip>
-                  <div class="marquee-track row-title-pair">${renderTitlePair(m.cnName, m.name)}</div>
+                  <div class="marquee-track row-title-pair">${renderTitlePair(m.cnName, m.name, disableCn)}</div>
                 </div>
                 <div class="marquee-clip" data-marquee-clip>
                   <div class="marquee-track data-row-sub quick-mod-file" style="font-family:var(--font-mono); font-size:11px;">v${esc(m.version)} · ${esc(m.file)}${m.enabled ? "" : ".disabled"}</div>
@@ -1280,10 +1328,10 @@
             <div class="mod-action-group">
               ${renderOpenFolderBtn("mods", "在 Mod 文件夹中打开", isCompact)}
               ${renderMothToggle(m.enabled, `data-toggle-mod="${esc(m.id)}"`, m.name, isCompact)}
-              ${renderDeleteBtn(m.id, `删除 ${m.cnName || m.name}`, isCompact)}
+              ${renderDeleteBtn(m.id, `删除 ${modLabel}`, isCompact)}
             </div>
-          </div>`
-            )
+          </div>`;
+            })
             .join("") || '<div class="data-row data-row--empty"><div>空空如也X_X</div></div>'
         }
       </div>
@@ -1334,8 +1382,9 @@
             ${
               accounts.length > 0
                 ? accounts
-                    .map(
-                      (item, idx) => `
+                    .map((item, idx) => {
+                      const isOffline = !String(item.type || "").toLowerCase().includes("microsoft");
+                      return `
                 <div class="account-row ${acc.id === item.id ? "is-current" : ""}" data-acc-row="${esc(item.id)}" style="--acc-idx:${Math.min(idx, 6)};">
                   <span class="account-row-bg" aria-hidden="true"></span>
                   <button class="account-select-btn" data-switch-account="${esc(item.id)}" type="button">
@@ -1345,26 +1394,59 @@
                       <span class="account-row-type">${esc(item.type)}</span>
                     </span>
                   </button>
-                  <button
-                    class="emu-delete-btn emu-delete-btn--sm"
-                    data-delete-account="${esc(item.id)}"
-                    aria-label="删除账号 ${esc(item.username)}"
-                    title="删除账号"
-                    type="button"
-                  >
-                    <svg class="emu-del-icon" viewBox="0 0 448 512" aria-hidden="true">
-                      <path d="M135.2 17.7L128 32H32C14.3 32 0 46.3 0 64S14.3 96 32 96H416c17.7 0 32-14.3 32-32s-14.3-32-32-32H320l-7.2-14.3C307.4 6.8 296.3 0 284.2 0H163.8c-12.1 0-23.2 6.8-28.6 17.7zM416 128H32L53.2 467c1.6 25.3 22.6 45 47.9 45H346.9c25.3 0 46.3-19.7 47.9-45L416 128z"/>
-                    </svg>
-                  </button>
-                </div>`
-                    )
+                  <span class="account-row-actions">
+                    ${
+                      isOffline
+                        ? `<button
+                      class="account-skin-btn ${item.hasCustomSkin ? "has-custom-skin" : ""}"
+                      data-import-skin="${esc(item.id)}"
+                      aria-label="为 ${esc(item.username)} 导入本地皮肤"
+                      title="${item.hasCustomSkin ? "更换本地皮肤" : "导入本地皮肤"}"
+                      type="button"
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z"/>
+                      </svg>
+                    </button>`
+                        : ""
+                    }
+                    <button
+                      class="emu-delete-btn emu-delete-btn--sm"
+                      data-delete-account="${esc(item.id)}"
+                      aria-label="删除账号 ${esc(item.username)}"
+                      title="删除账号"
+                      type="button"
+                    >
+                      <svg class="emu-del-icon" viewBox="0 0 448 512" aria-hidden="true">
+                        <path d="M135.2 17.7L128 32H32C14.3 32 0 46.3 0 64S14.3 96 32 96H416c17.7 0 32-14.3 32-32s-14.3-32-32-32H320l-7.2-14.3C307.4 6.8 296.3 0 284.2 0H163.8c-12.1 0-23.2 6.8-28.6 17.7zM416 128H32L53.2 467c1.6 25.3 22.6 45 47.9 45H346.9c25.3 0 46.3-19.7 47.9-45L416 128z"/>
+                      </svg>
+                    </button>
+                  </span>
+                </div>`;
+                    })
                     .join("")
                 : '<div class="account-empty">空空如也X_X</div>'
             }
           </div>
           <div class="account-add-actions">
-            <button class="btn-outline account-type-btn" id="btn-add-ms-account" type="button">正版登录</button>
-            <button class="btn-solid account-type-btn ${offlineAddOpen ? "is-active" : ""}" id="btn-show-offline-add" type="button">+ 离线角色</button>
+            <button class="btn-outline account-type-btn" id="btn-add-ms-account" type="button">
+              <svg class="ms-win-logo" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <rect x="2" y="2" width="9.2" height="9.2" rx="1"/>
+                <rect x="12.8" y="2" width="9.2" height="9.2" rx="1"/>
+                <rect x="2" y="12.8" width="9.2" height="9.2" rx="1"/>
+                <rect x="12.8" y="12.8" width="9.2" height="9.2" rx="1"/>
+              </svg>
+              <span>正版登录</span>
+            </button>
+            <button class="btn-solid account-type-btn ${offlineAddOpen ? "is-active" : ""}" id="btn-show-offline-add" type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                <circle cx="8.5" cy="7" r="4"/>
+                <line x1="20" y1="8" x2="20" y2="14"/>
+                <line x1="23" y1="11" x2="17" y2="11"/>
+              </svg>
+              <span>离线角色</span>
+            </button>
           </div>
           <div class="account-offline-drawer ${offlineAddOpen ? "is-open" : ""}" id="account-offline-drawer">
             <div class="account-offline-drawer-inner">
@@ -1414,7 +1496,7 @@
                 return `
             <div class="launch-row">
               <button class="btn-launch ${hasVersion ? "" : "is-disabled"} ${isPreSpawnPending ? "is-hollow" : ""}" id="btn-launch-game" ${hasVersion ? "" : 'disabled aria-disabled="true"'} ${isPreSpawnPending ? 'data-cancel-pending-launch="true"' : ""} type="button">
-                <span>${!hasVersion ? "暂无可启动版本" : isPreSpawnPending ? "取消" : "启动游戏"}</span>
+                <span>${!hasVersion ? "暂无可启动版本" : isPreSpawnPending ? "取消" : "START"}</span>
                 <span>${!hasVersion ? "→" : isPreSpawnPending ? "×" : "→"}</span>
               </button>`;
               })()
@@ -1540,7 +1622,7 @@
                     <path d="M12 3v12m0 0l-5-5m5 5l5-5M4 20h16"/>
                   </svg>
                 </span>
-                <span>下载资源</span>
+                <span>资源下载</span>
                 <span class="micro-arrow">↓</span>
               </button>
 
@@ -1567,34 +1649,44 @@
             </div>
           </div>
 
-          <!-- Right: Utility Circular Buttons (List & Download Queue) + 6 Interactive 3D Folders -->
-          <div class="folder-zone" aria-label="版本实例文件夹">
-            <div class="folder-zone-tools">
-              <button class="emu-btn emu-btn--sm" id="btn-open-folder-gallery" aria-label="版本列表" title="版本列表" type="button">
-                <span class="filled" aria-hidden="true"></span>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <line x1="8" y1="6" x2="21" y2="6"/>
-                  <line x1="8" y1="12" x2="21" y2="12"/>
-                  <line x1="8" y1="18" x2="21" y2="18"/>
-                  <circle cx="4" cy="6" r="1.2" fill="currentColor" stroke="none"/>
-                  <circle cx="4" cy="12" r="1.2" fill="currentColor" stroke="none"/>
-                  <circle cx="4" cy="18" r="1.2" fill="currentColor" stroke="none"/>
-                </svg>
-              </button>
+          <!-- Right: Utility Circular Buttons (List & Download Queue) + 6 Interactive 3D Folders / Pure Home 3D Skin -->
+          <div class="hero-right-stage">
+            <div class="folder-zone" aria-label="版本实例文件夹">
+              <div class="folder-zone-tools">
+                <button class="emu-btn emu-btn--sm" id="btn-open-folder-gallery" aria-label="版本列表" title="版本列表" type="button">
+                  <span class="filled" aria-hidden="true"></span>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <line x1="8" y1="6" x2="21" y2="6"/>
+                    <line x1="8" y1="12" x2="21" y2="12"/>
+                    <line x1="8" y1="18" x2="21" y2="18"/>
+                    <circle cx="4" cy="6" r="1.2" fill="currentColor" stroke="none"/>
+                    <circle cx="4" cy="12" r="1.2" fill="currentColor" stroke="none"/>
+                    <circle cx="4" cy="18" r="1.2" fill="currentColor" stroke="none"/>
+                  </svg>
+                </button>
 
-              <button class="emu-btn emu-btn--sm emu-btn--badge" id="btn-open-download-queue" aria-label="查看下载列表" title="查看下载列表" type="button">
-                <span class="filled" aria-hidden="true"></span>
-                ${(state.downloadTasks || []).some((t) => t.status === "downloading") ? '<span class="emu-queue-dot" aria-hidden="true"></span>' : ""}
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M12 4v10"/>
-                  <path d="M8.5 10.5L12 14l3.5-3.5"/>
-                  <path d="M4 17v1.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V17"/>
-                </svg>
-              </button>
+                <button class="emu-btn emu-btn--sm emu-btn--badge" id="btn-open-download-queue" aria-label="查看下载列表" title="查看下载列表" type="button">
+                  <span class="filled" aria-hidden="true"></span>
+                  ${(state.downloadTasks || []).some((t) => t.status === "downloading") ? '<span class="emu-queue-dot" aria-hidden="true"></span>' : ""}
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M12 4v10"/>
+                    <path d="M8.5 10.5L12 14l3.5-3.5"/>
+                    <path d="M4 17v1.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V17"/>
+                  </svg>
+                </button>
+              </div>
+
+              <div id="folder-shelf-region">
+                ${renderFolderShelfContent(state, (opts && opts.favPage) || 1)}
+              </div>
             </div>
 
-            <div id="folder-shelf-region">
-              ${renderFolderShelfContent(state, (opts && opts.favPage) || 1)}
+            <div class="pure-skin-stage" id="pure-skin-stage" aria-hidden="true">
+              <div class="pure-skin-viewport" id="pure-skin-viewport">
+                <div class="mc-skin-rig" id="mc-skin-rig" data-skin-model="default"></div>
+                <div class="pure-skin-shadow" aria-hidden="true"></div>
+              </div>
+              <div class="pure-skin-uid" id="pure-skin-uid">${esc((state.account && state.account.username) || "Steve")}</div>
             </div>
           </div>
         </div>
@@ -2047,9 +2139,7 @@
     const timeText = v.releaseTime || v.date || "";
     const subLabel = `${labelPrefix || v.type}，发布于 ${timeText}`;
     const directVanilla = isVanillaOnlyMcVersion(v);
-    const rowAttr = directVanilla
-      ? `data-direct-version-download="${esc(v.id)}" data-queue-name="Minecraft ${esc(v.id)}" data-queue-sub="${esc(v.id)}.jar" data-queue-icon="${esc(v.icon || "assets/mc-icons/grass.png")}" data-install-type="version" data-mc-version="${esc(v.id)}"`
-      : `data-open-resource="versions:${esc(v.id)}"`;
+    const rowAttr = `data-open-resource="versions:${esc(v.id)}"`;
     const btnAttrs = `data-queue-name="Minecraft ${esc(v.id)}" data-queue-sub="${esc(v.id)}.jar" data-queue-icon="${esc(v.icon || "assets/mc-icons/grass.png")}" data-install-type="version" data-mc-version="${esc(v.id)}"${directVanilla ? ' data-direct-version-btn="true"' : ""}`;
     return `
       <div class="data-row data-row--pcl" ${rowAttr}>
@@ -2063,7 +2153,7 @@
             <div class="data-row-sub" style="font-family:var(--font-mono); font-size:11px;">${esc(subLabel)}</div>
           </div>
         </div>
-        ${renderDownloadBtn(`正在通过 ${state.mirrorSource} 安装 Minecraft ${v.id} (${directVanilla ? "原版" : formatLoadersTag(v.loaders)})`, `下载 ${v.id}`, btnAttrs)}
+        ${renderDownloadBtn(`正在通过 ${state.mirrorSource} 安装 Minecraft ${v.id}${!directVanilla && formatLoadersTag(v.loaders) ? ` (${formatLoadersTag(v.loaders)})` : ""}`, `下载 ${v.id}`, btnAttrs)}
       </div>`;
   }
 
@@ -2108,7 +2198,8 @@
   }
 
   function renderResourceRowHtml(it, catKey, state, idx) {
-    const displayLabel = it.cnName || it.enName;
+    const disableCn = shouldDisableCnNames(state);
+    const displayLabel = disableCn ? (it.enName || it.cnName) : (it.cnName || it.enName);
     const cascadeStyle = typeof idx === "number" ? `style="--row-idx:${idx};"` : "";
     const cascadeCls = typeof idx === "number" ? "data-row--cascade" : "";
     return `
@@ -2119,11 +2210,16 @@
               <img src="${esc(it.icon)}" alt="" loading="lazy" decoding="async" />
             </div>
             <div class="row-title-pair">
-              ${renderTitlePair(it.cnName, it.enName)}
+              ${renderTitlePair(it.cnName, it.enName, disableCn)}
             </div>
           </div>
           <div class="resource-row-meta">
-            <div class="col-tag" title="${esc(formatLoadersTag(it.loaders))}">${COL_ICONS.loader}<span>${esc(formatLoadersTag(it.loaders))}</span></div>
+            ${(() => {
+              const ldTag = formatLoadersTag(it.loaders);
+              return ldTag
+                ? `<div class="col-tag" title="${esc(ldTag)}">${COL_ICONS.loader}<span>${esc(ldTag)}</span></div>`
+                : `<div class="col-tag" aria-hidden="true"></div>`;
+            })()}
             <div class="col-tag" title="${esc(it.downloads)}">${COL_ICONS.dl}<span>${esc(it.downloads)}</span></div>
             <div class="col-tag" title="${esc(it.mcVersions)}">${COL_ICONS.ver}<span>${esc(it.mcVersions)}</span></div>
             <div class="col-tag is-source" title="${esc(formatSourceTag(it.source))}">${COL_ICONS.source}<span>${esc(formatSourceTag(it.source))}</span></div>
@@ -2286,7 +2382,7 @@
     const opts = viewOpts || {};
     const titles = {
       "download-versions": { k: "GAME VERSIONS", t: "游戏版本" },
-      "download-mods": { k: "MOD RESOURCES", t: "模组资源" },
+      "download-mods": { k: "MODS", t: "模组" },
       "download-packs": { k: "RESOURCE PACKS", t: "资源包" },
       "download-shaders": { k: "SHADER PACKS", t: "光影包" },
       "download-modpacks": { k: "MODPACKS", t: "整合包" }
@@ -2388,36 +2484,61 @@
     const javaScanPending = Boolean(opts.javaScanPending);
 
     return `
-      <div class="breadcrumb-bar">
-        <div>
-          <div style="font-family:var(--font-mono); font-size:11px; color:var(--accent-primary);">AUTH &amp; JAVA RUNTIME</div>
-          <h3 class="section-title-editorial" style="margin-top:4px;">账号与 Java</h3>
-        </div>
-      </div>
-
       <div class="panel-grid-2">
-        <div class="spec-box v-reveal" style="--v-idx:0;">
-          <h3>Microsoft OAuth2</h3>
-          <div style="border-top:1px dotted var(--line-dotted); padding:14px 0; font-family:var(--font-mono); font-size:12px;">
-            <div>玩家: <strong style="color:var(--accent-primary);">${esc((state.account && state.account.username) || "未登录")}</strong></div>
-            <div style="margin-top:6px;">类型: ${esc((state.account && state.account.type) || "匿名状态")}</div>
-            <div style="margin-top:6px; color:var(--text-muted);">UUID: ${esc((state.account && state.account.uuid) || "-")}</div>
+        <div class="manage-col-stack">
+          <div class="spec-box v-reveal" style="--v-idx:0;">
+            <h3>Microsoft OAuth2</h3>
+            <div style="border-top:1px dotted var(--line-dotted); padding:14px 0; font-family:var(--font-mono); font-size:12px;">
+              <div>玩家: <strong style="color:var(--accent-primary);">${esc((state.account && state.account.username) || "未登录")}</strong></div>
+              <div style="margin-top:6px;">类型: ${esc((state.account && state.account.type) || "匿名状态")}</div>
+              <div style="margin-top:6px; color:var(--text-muted);">UUID: ${esc((state.account && state.account.uuid) || "-")}</div>
+            </div>
+            <div style="display:flex; gap:10px; margin-top:12px;">
+              <button class="chip-btn chip-btn--ms is-active" id="btn-microsoft-login" type="button">
+                <svg class="ms-win-logo" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <rect x="2" y="2" width="9.2" height="9.2" rx="1"/>
+                  <rect x="12.8" y="2" width="9.2" height="9.2" rx="1"/>
+                  <rect x="2" y="12.8" width="9.2" height="9.2" rx="1"/>
+                  <rect x="12.8" y="12.8" width="9.2" height="9.2" rx="1"/>
+                </svg>
+                <span>微软登录</span>
+              </button>
+              <button class="chip-btn" id="btn-refresh-token" type="button">刷新会话</button>
+            </div>
           </div>
-          <div style="display:flex; gap:10px; margin-top:12px;">
-            <button class="chip-btn chip-btn--ms is-active" id="btn-microsoft-login" type="button">
-              <svg class="ms-win-logo" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <rect x="2" y="2" width="9.2" height="9.2" rx="1"/>
-                <rect x="12.8" y="2" width="9.2" height="9.2" rx="1"/>
-                <rect x="2" y="12.8" width="9.2" height="9.2" rx="1"/>
-                <rect x="12.8" y="12.8" width="9.2" height="9.2" rx="1"/>
-              </svg>
-              <span>微软登录</span>
-            </button>
-            <button class="chip-btn" id="btn-refresh-token" type="button">刷新账号会话</button>
+
+          <div class="spec-box v-reveal" style="--v-idx:1;">
+            <h3>功能</h3>
+            <div class="feature-switch-list">
+              <div class="feature-switch-item">
+                <div class="feature-switch-meta">
+                  <div class="feature-switch-title">绕过代理</div>
+                  <div class="feature-switch-desc">仅在下载资源时绕过系统代理或VPN ，改善下载速度并节省流量</div>
+                </div>
+                ${renderFeatureSwitch(
+                  "toggle-bypass-proxy",
+                  Boolean(state.bypassSystemProxyOnDownload),
+                  "绕过代理",
+                  'data-feature-toggle="bypassSystemProxyOnDownload"'
+                )}
+              </div>
+              <div class="feature-switch-item">
+                <div class="feature-switch-meta">
+                  <div class="feature-switch-title">取消中文译名</div>
+                  <div class="feature-switch-desc">资源列表仅显示资源的英文正式名，不影响启动器系统语言</div>
+                </div>
+                ${renderFeatureSwitch(
+                  "toggle-disable-cn-names",
+                  Boolean(state.disableChineseResourceNames),
+                  "取消中文译名",
+                  'data-feature-toggle="disableChineseResourceNames"'
+                )}
+              </div>
+            </div>
           </div>
         </div>
 
-        <div class="spec-box v-reveal" style="--v-idx:1;">
+        <div class="spec-box v-reveal" style="--v-idx:2;">
           <div class="spec-box-head">
             <h3>本地 Java (<span id="java-count-badge">${javas.length}</span>)</h3>
           </div>
@@ -2480,9 +2601,10 @@
         <div class="spec-box v-reveal" style="--v-idx:1;">
           <h3>JVM 参数设置</h3>
           <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
-            <button class="chip-btn page-pill ${(state.customJvmArgs || "").includes("UseZGC") ? "is-active" : ""}" data-jvm-preset="-XX:+UseZGC -XX:+ZGenerational -Dfile.encoding=UTF-8" type="button">Gen-ZGC</button>
-            <button class="chip-btn page-pill ${(state.customJvmArgs || "").includes("UseG1GC") ? "is-active" : ""}" data-jvm-preset="-XX:+UseG1GC -XX:MaxGCPauseMillis=30 -Dfile.encoding=UTF-8" type="button">G1GC</button>
-            <button class="chip-btn page-pill ${(state.customJvmArgs || "").includes("UseShenandoahGC") ? "is-active" : ""}" data-jvm-preset="-XX:+UseShenandoahGC -Dfile.encoding=UTF-8" type="button">Shenandoah</button>
+            <button class="chip-btn page-pill ${(state.customJvmArgs || "").includes("ZGenerational") ? "is-active" : ""}" data-jvm-preset="-XX:+UseZGC -XX:+ZGenerational -XX:+DisableExplicitGC -Dfile.encoding=UTF-8" type="button">Gen-ZGC</button>
+            <button class="chip-btn page-pill ${(state.customJvmArgs || "").includes("UseZGC") && !(state.customJvmArgs || "").includes("ZGenerational") ? "is-active" : ""}" data-jvm-preset="-XX:+UseZGC -XX:+DisableExplicitGC -Dfile.encoding=UTF-8" type="button">ZGC</button>
+            <button class="chip-btn page-pill ${(state.customJvmArgs || "").includes("UseG1GC") ? "is-active" : ""}" data-jvm-preset="-XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=50 -XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC -XX:G1NewSizePercent=20 -XX:G1ReservePercent=15 -XX:InitiatingHeapOccupancyPercent=45 -Dfile.encoding=UTF-8" type="button">G1GC</button>
+            <button class="chip-btn page-pill ${(state.customJvmArgs || "").includes("UseShenandoahGC") ? "is-active" : ""}" data-jvm-preset="-XX:+UseShenandoahGC -XX:+DisableExplicitGC -Dfile.encoding=UTF-8" type="button">Shenandoah</button>
           </div>
           <label class="quick-field-label" for="diag-jvm-args-input">自定义参数</label>
           <div class="jvm-textarea-row">
@@ -2593,12 +2715,12 @@
                 <div class="row-official-icon">
                   <img src="${esc(t.icon)}" alt="${esc(t.name)}" loading="eager" />
                 </div>
-                <div style="min-width:0;">
+                <div class="dl-text-col">
                   <div class="row-title-pair">
-                    <span class="data-row-title">${esc(t.name)}</span>
+                    <span class="data-row-title" title="${esc(t.name)}">${esc(t.name)}</span>
                     <span class="row-en-name">${esc(t.size)} · ${esc(t.source)}</span>
                   </div>
-                  <div class="data-row-sub quick-mod-file" title="${t.status === "paused" ? esc(t.speed) : ""}" style="font-family:var(--font-mono); font-size:11px;">${esc(t.sub)} · ${t.status === "completed" ? esc(t.size) : esc(t.speed)}</div>
+                  <div class="data-row-sub quick-mod-file" title="${esc(t.sub)} · ${t.status === "completed" ? esc(t.size) : esc(t.speed)}" style="font-family:var(--font-mono); font-size:11px;">${esc(t.sub)} · ${t.status === "completed" ? esc(t.size) : esc(t.speed)}</div>
                 </div>
               </div>
 
@@ -2606,7 +2728,7 @@
                 <div class="dl-task-progress" role="progressbar" aria-label="${esc(t.name)} 下载进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${t.progress}">
                   <div class="dl-task-progress-fill ${t.status === "completed" ? "is-done" : ""}" style="width:${t.progress}%"></div>
                 </div>
-                <span class="data-row-meta dl-progress-pct">${t.progress}%</span>
+                <span class="data-row-meta dl-progress-pct">${t.status === "completed" || t.progress >= 100 ? "已完成" : `${t.progress}%`}</span>
               </div>
 
               <div class="mod-action-group">
@@ -2752,7 +2874,8 @@
         <div class="vdetail-deps-grid">
           ${deps
             .map((dep) => {
-              const dTitle = dep.cnName ? `${dep.cnName} (${dep.enName})` : (dep.enName || dep.projectId);
+              const disableCn = shouldDisableCnNames(state);
+              const dTitle = (!disableCn && dep.cnName) ? `${dep.cnName} (${dep.enName})` : (dep.enName || dep.cnName || dep.projectId);
               const dCat = dep.catKey || "mods";
               const dId = dep.id || (dep.projectId ? `mr-${dep.projectId}` : "");
               return `
@@ -2823,7 +2946,7 @@
                 : renderDownloadBtn(
               `已加入下载队列：${b.title} (${state.mirrorSource})`,
               detail.catKey === "modpacks" ? `安装 ${b.title}` : `下载 ${b.title}`,
-              `data-queue-name="${esc(b.title)}" data-queue-project="${esc(detail.cnName || detail.enName)}" data-queue-sub="${esc(b.file)}" data-queue-icon="${esc(detail.icon)}" data-queue-size="${esc(b.size)}" data-project-id="${esc(detail.id)}" data-cat-key="${esc(detail.catKey)}" data-build-ref="${esc(b.id)}" data-mc-version="${esc(mcVersion)}"`
+              `data-queue-name="${esc(b.title)}" data-queue-project="${esc(shouldDisableCnNames(state) ? (detail.enName || detail.cnName) : (detail.cnName || detail.enName))}" data-queue-sub="${esc(b.file)}" data-queue-icon="${esc(detail.icon)}" data-queue-size="${esc(b.size)}" data-project-id="${esc(detail.id)}" data-cat-key="${esc(detail.catKey)}" data-build-ref="${esc(b.id)}" data-mc-version="${esc(mcVersion)}"`
             )
       }
     </div>`;
@@ -2839,13 +2962,18 @@
       return `<section class="container resource-detail-page"><div class="data-row data-row--empty"><div>空空如也X_X</div></div></section>`;
     }
 
-    const activeLoader = detail.loaders.includes(detailState.activeLoader)
+    const allLoaders = Array.isArray(detail.loaders) ? detail.loaders : [];
+    const visibleLoaders = allLoaders.filter((ld) => String(ld || "").trim().toLowerCase() !== "default");
+    const activeLoader = visibleLoaders.includes(detailState.activeLoader)
       ? detailState.activeLoader
-      : detail.loaders[0];
+      : visibleLoaders[0] || allLoaders[0];
     const selectedBuilds = (detailState && detailState.selectedVersionBuilds) || {};
     const isVersionDetail = detail.catKey === "versions";
-    const headlineText = detail.cnName || detail.enName || detail.name || "未命名资源";
-    const subEnName = detail.enName && detail.enName !== headlineText ? detail.enName : "";
+    const disableCn = !isVersionDetail && shouldDisableCnNames(state);
+    const headlineText = disableCn
+      ? (detail.enName || detail.name || detail.cnName || "未命名资源")
+      : (detail.cnName || detail.enName || detail.name || "未命名资源");
+    const subEnName = !disableCn && detail.enName && detail.enName !== headlineText ? detail.enName : "";
     const detailLinks = detail.links || {};
     const extArrowSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`;
     const dlIconSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="M7.5 11.5L12 16l4.5-4.5"/><path d="M5 20h14"/></svg>`;
@@ -2868,7 +2996,7 @@
     const downloadBtnLabel =
       selectedLoaderKeys.length > 0
         ? `下载${detail.id} ${selectedLoaderKeys.join("+")}`
-        : `下载${detail.id} 原版`;
+        : `下载${detail.id}`;
 
     return `
       <div class="vdetail-bg-motif" id="vdetail-bg-motif" aria-hidden="true">${getMotifSvgForLoader(activeLoader)}</div>
@@ -2896,19 +3024,21 @@
             </div>
           </div>
 
-          <!-- Level 1: Loader Switcher + Version Download Action (Skipped for Resource Packs) -->
+          <!-- Level 1: Loader Switcher + Version Download Action (Skipped when no visible loaders on non-version resources) -->
           ${
-            detail.hideLoaders || detailState.loading || detailState.error
+            detail.hideLoaders || detailState.loading || detailState.error || (!isVersionDetail && visibleLoaders.length === 0)
               ? ""
               : `
           <div class="vdetail-loader-bar">
             <div class="vdetail-loader-list" role="tablist" aria-label="选择加载器分支">
-              ${detail.loaders
-                .map((ld) => {
-                  const isAct = ld === activeLoader;
-                  const hasSelected = Boolean(selectedBuilds[ld]);
-                  const conflictWith = isVersionDetail ? getLoaderIncompatibility(ld, selectedBuilds) : null;
-                  return `
+              ${
+                visibleLoaders.length > 0
+                  ? visibleLoaders
+                      .map((ld) => {
+                        const isAct = ld === activeLoader;
+                        const hasSelected = Boolean(selectedBuilds[ld]);
+                        const conflictWith = isVersionDetail ? getLoaderIncompatibility(ld, selectedBuilds) : null;
+                        return `
                     <button
                       class="vdetail-loader-btn ${isAct ? "is-active" : ""} ${hasSelected ? "has-selected-build" : ""} ${conflictWith ? "is-incompatible-loader" : ""}"
                       data-detail-loader="${esc(ld)}"
@@ -2920,8 +3050,12 @@
                       <span class="vdetail-loader-word">${renderCutoutWord(ld)}</span>
                       <span class="rare-cow-tooltip" role="tooltip">${conflictWith ? `${esc(ld)}与${esc(conflictWith)}不兼容！` : ""}</span>
                     </button>`;
-                })
-                .join("")}
+                      })
+                      .join("")
+                  : isVersionDetail
+                    ? '<span class="vdetail-vanilla-only-note">暂无可用模组加载器</span>'
+                    : ""
+              }
             </div>
             ${
               isVersionDetail
@@ -2939,7 +3073,9 @@
           <div class="vdetail-mc-list" id="vdetail-mc-list">
             ${detailState.loading || detailState.error
               ? `<div class="data-row data-row--empty" role="status"><div>${esc(detailState.error || "正在读取可下载版本…")}</div></div>`
-              : renderDetailMcListHtml(detail, activeLoader, detailState.expandedMcVersion, state, selectedBuilds)}
+              : isVersionDetail && visibleLoaders.length === 0
+                ? ""
+                : renderDetailMcListHtml(detail, activeLoader, detailState.expandedMcVersion, state, selectedBuilds)}
           </div>
         </div>
       </section>
@@ -2975,6 +3111,7 @@
     renderAnimatedCounterHtml,
     renderOfficialJavaDrawerInnerHtml,
     renderQuailLoader,
+    renderFeatureSwitch,
     MC_ICONS,
     renderHubSection,
     renderQuickPanel,

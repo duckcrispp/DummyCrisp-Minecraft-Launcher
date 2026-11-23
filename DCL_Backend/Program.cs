@@ -120,6 +120,9 @@ internal sealed class MainForm : Form
     private readonly StorageService _storage;
     private readonly HostBridge _bridge;
     private readonly Dictionary<string, string> _embeddedIndex;
+    private readonly Task<CoreWebView2Environment> _wvEnvTask;
+    private readonly Color _initialBgColor;
+    private readonly bool _initialDarkTitleBar;
 
     [DllImport("user32.dll")]
     private static extern bool ReleaseCapture();
@@ -182,20 +185,40 @@ internal sealed class MainForm : Form
         catch { }
 
         _storage = storage;
-        _bridge = new HostBridge(_storage);
+        _bridge = new HostBridge(_storage, deferWorkspaceScan: true);
+        (_initialBgColor, _initialDarkTitleBar) = ResolveThemeSurface(_bridge.ThemeId);
+        BackColor = _initialBgColor;
         TopMost = _bridge.AlwaysOnTop;
         _embeddedIndex = BuildEmbeddedResourceLookup();
+
+        string wvUserData = Path.Combine(_storage.CacheDir, "webview2");
+        Directory.CreateDirectory(wvUserData);
+        _wvEnvTask = CoreWebView2Environment.CreateAsync(null, wvUserData);
 
         _webView = new WebView2
         {
             Dock = DockStyle.Fill,
-            DefaultBackgroundColor = Color.FromArgb(10, 10, 12)
+            DefaultBackgroundColor = _initialBgColor
         };
         Controls.Add(_webView);
 
         Load += OnFormLoadAsync;
         SizeChanged += (_, _) => UpdateResizePadding();
     }
+
+    private static (Color Bg, bool IsDark) ResolveThemeSurface(string themeId) => (themeId ?? "").Trim().ToLowerInvariant() switch
+    {
+        "editorial-cream" => (Color.FromArgb(244, 243, 239), false),
+        "cyber-cyan" => (Color.FromArgb(7, 11, 16), true),
+        "sage-forest" => (Color.FromArgb(218, 215, 205), false),
+        "crimson-rose" => (Color.FromArgb(89, 13, 34), true),
+        "violet-nebula" => (Color.FromArgb(16, 0, 43), true),
+        "monochrome-slate" => (Color.FromArgb(248, 249, 250), false),
+        "espresso-amber" => (Color.FromArgb(255, 237, 216), false),
+        "ice-periwinkle" => (Color.FromArgb(237, 242, 251), false),
+        "rainbow-prism" => (Color.FromArgb(11, 11, 18), true),
+        _ => (Color.FromArgb(10, 10, 12), true)
+    };
 
     protected override CreateParams CreateParams
     {
@@ -225,7 +248,7 @@ internal sealed class MainForm : Form
         {
             int roundPref = 2; // DWMWCP_ROUND
             DwmSetWindowAttribute(Handle, 33, ref roundPref, sizeof(int));
-            int darkMode = 1;
+            int darkMode = _initialDarkTitleBar ? 1 : 0;
             DwmSetWindowAttribute(Handle, 20, ref darkMode, sizeof(int));
             SetWindowPos(Handle, IntPtr.Zero, 0, 0, 0, 0, 0x0020 | 0x0002 | 0x0001 | 0x0004);
         }
@@ -276,9 +299,7 @@ internal sealed class MainForm : Form
     {
         try
         {
-            string wvUserData = Path.Combine(_storage.CacheDir, "webview2");
-            Directory.CreateDirectory(wvUserData);
-            var env = await CoreWebView2Environment.CreateAsync(null, wvUserData);
+            var env = await _wvEnvTask;
             await _webView.EnsureCoreWebView2Async(env);
 
             var core = _webView.CoreWebView2;
@@ -313,6 +334,14 @@ internal sealed class MainForm : Form
                     catch { }
                 });
             };
+
+            // Wait for parallel workspace scan (usually already done during WebView2 init) and pre-inject boot state
+            await _bridge.EnsureWorkspaceReadyAsync();
+            string bootJson = JsonSerializer.Serialize(_bridge.BuildStateDto(), StorageService.JsonOpts);
+            await core.AddScriptToExecuteOnDocumentCreatedAsync(
+                $"window.__DCL_BOOT_STATE__ = {bootJson};" +
+                "if (document.documentElement) document.documentElement.classList.add('dcl-desktop-boot');" +
+                "else document.addEventListener('DOMContentLoaded', () => document.documentElement.classList.add('dcl-desktop-boot'), { once: true });");
 
             core.Navigate("https://dcl.local/index.html");
         }
@@ -352,11 +381,21 @@ internal sealed class MainForm : Form
                 stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resName);
             else if (rel.StartsWith(StorageService.ModIconRoute, StringComparison.Ordinal))
                 stream = _storage.OpenModIcon(rel[StorageService.ModIconRoute.Length..]);
+            else if (rel.StartsWith(StorageService.SkinAssetRoute, StringComparison.Ordinal))
+                stream = _storage.OpenSkinAsset(rel[StorageService.SkinAssetRoute.Length..]);
             else
                 return;
 
             if (stream != null)
             {
+                if (string.Equals(rel, "index.html", StringComparison.OrdinalIgnoreCase))
+                {
+                    using var sr = new StreamReader(stream);
+                    string html = sr.ReadToEnd();
+                    string savedTheme = _bridge.ThemeId;
+                    html = html.Replace("data-theme=\"obsidian-yellow\"", $"data-theme=\"{savedTheme}\" class=\"dcl-desktop-boot\"", StringComparison.Ordinal);
+                    stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(html));
+                }
                 string mime = GetMimeType(rel);
                 string cacheControl = rel.StartsWith(StorageService.ModIconRoute, StringComparison.Ordinal)
                     ? "public, max-age=31536000, immutable" : "no-cache";
@@ -389,6 +428,26 @@ internal sealed class MainForm : Form
 
             var result = cmd switch
             {
+                "ui_ready" => new { ok = true },
+                "import_offline_skin" => InvokeUi(() =>
+                {
+                    string accId = payload.ValueKind == JsonValueKind.Object &&
+                                   payload.TryGetProperty("id", out var idEl)
+                        ? (idEl.GetString() ?? "")
+                        : "";
+                    if (string.IsNullOrWhiteSpace(accId))
+                        throw new ArgumentException("未指定离线账号。");
+                    using var dialog = new OpenFileDialog
+                    {
+                        Title = "选择本地 Minecraft 皮肤文件 (PNG)",
+                        Filter = "Minecraft 皮肤 (*.png)|*.png",
+                        CheckFileExists = true,
+                        Multiselect = false
+                    };
+                    if (dialog.ShowDialog(this) != DialogResult.OK)
+                        return new { cancelled = true };
+                    return _bridge.SetOfflineAccountSkin(accId, dialog.FileName) ?? (object)new { cancelled = true };
+                }),
                 "browse_resource_install_folder" => InvokeUi(() =>
                 {
                     using var dialog = new FolderBrowserDialog
@@ -432,12 +491,24 @@ internal sealed class MainForm : Form
                 }),
                 "window_start_drag" => InvokeUi(() =>
                 {
-                    if (WindowState == FormWindowState.Normal)
+                    if (WindowState == FormWindowState.Maximized)
                     {
-                        ReleaseCapture();
-                        SendMessage(Handle, 0x00A1, 0x0002, 0);
+                        var cursor = Cursor.Position;
+                        var screen = Screen.FromPoint(cursor);
+                        double ratioX = Math.Clamp((cursor.X - Left) / (double)Math.Max(1, Width), 0.12, 0.88);
+                        int offsetY = Math.Clamp(cursor.Y - Top, 12, 40);
+                        int restoreW = RestoreBounds.Width > 320 ? RestoreBounds.Width : 1240;
+                        int restoreH = RestoreBounds.Height > 240 ? RestoreBounds.Height : 780;
+                        WindowState = FormWindowState.Normal;
+                        Size = new Size(restoreW, restoreH);
+                        int targetX = cursor.X - (int)Math.Round(restoreW * ratioX);
+                        int targetY = Math.Max(screen.WorkingArea.Top, cursor.Y - offsetY);
+                        Location = new Point(targetX, targetY);
+                        UpdateResizePadding();
                     }
-                    return new { ok = true };
+                    ReleaseCapture();
+                    SendMessage(Handle, 0x00A1, 0x0002, 0);
+                    return new { ok = true, maximized = WindowState == FormWindowState.Maximized };
                 }),
                 "window_start_resize" => InvokeUi(() =>
                 {
@@ -514,6 +585,9 @@ internal sealed class MainForm : Form
         ".png" => "image/png",
         ".webp" => "image/webp",
         ".jpg" or ".jpeg" => "image/jpeg",
+        ".mp3" => "audio/mpeg",
+        ".wav" => "audio/wav",
+        ".ogg" => "audio/ogg",
         _ => "application/octet-stream"
     };
 }

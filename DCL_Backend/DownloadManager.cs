@@ -12,8 +12,12 @@ public sealed partial class DownloadManager
 {
     private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(12);
     private readonly HttpClient _http;
+    private readonly HttpClient _directHttp;
     private readonly NetworkHealth _health = new();
     internal (int Ping, double Available, double Mbps) Metrics(string url) => _health.Metrics(url);
+    public Func<bool> BypassSystemProxy { get; set; } = () => false;
+    internal HttpClient DirectHttp => _directHttp;
+    private HttpClient ActiveHttp => BypassSystemProxy() ? _directHttp : _http;
     private readonly StorageService _storage;
     private readonly object _lock = new();
     private readonly List<DownloadTaskEntry> _tasks = new();
@@ -27,6 +31,23 @@ public sealed partial class DownloadManager
     {
         _storage = storage;
         _http = http;
+        _directHttp = new HttpClient(new SocketsHttpHandler
+        {
+            UseProxy = false,
+            Proxy = null,
+            ConnectTimeout = TimeSpan.FromSeconds(8),
+            PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+            PooledConnectionIdleTimeout = TimeSpan.FromMinutes(3),
+            MaxConnectionsPerServer = MinecraftApiService.AssetDownloadConcurrency,
+            AutomaticDecompression = DecompressionMethods.All,
+            EnableMultipleHttp2Connections = true
+        })
+        {
+            Timeout = TimeSpan.FromMinutes(8),
+            DefaultRequestVersion = HttpVersion.Version20,
+            DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrLower
+        };
+        _directHttp.DefaultRequestHeaders.UserAgent.ParseAdd("DCL-Launcher/1.0");
     }
 
     public List<DownloadTaskEntry> GetTasksSnapshot()
@@ -263,7 +284,7 @@ public sealed partial class DownloadManager
             using var lease = await _health.EnterAsync(url, timeout.Token, false);
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Range = new RangeHeaderValue(0, 255);
-            using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+            using var response = await ActiveHttp.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
             CheckStatus(response, url);
             await using var stream = await response.Content.ReadAsStreamAsync(timeout.Token);
             var bytes = new byte[256];

@@ -102,14 +102,15 @@ public sealed class InstanceManager
             ? javas.FirstOrDefault(java => java.MatchesId(saved?.JavaId) && JavaManager.ParseMajor(java.Version) == pack.JavaMajor)
                 ?? javas.FirstOrDefault(java => JavaManager.ParseMajor(java.Version) == pack.JavaMajor)
             : PickJavaForMcVersion(javas, mcVer, saved?.JavaId);
-        int autoMem = SystemMemoryHelper.ComputeRecommendedMemoryMb(totalRamMb, availRamMb, mcVer, loader, modCount, isModpack, shaderCount);
+        string recommendedJvm = ComputeRecommendedJvmArgs(mcVer, bestJava);
+        string resolvedJvm = !string.IsNullOrWhiteSpace(saved?.JvmArgs) ? saved!.JvmArgs : recommendedJvm;
+        bool usesZgc = resolvedJvm.Contains("UseZGC", StringComparison.OrdinalIgnoreCase);
+        int autoMem = SystemMemoryHelper.ComputeRecommendedMemoryMb(totalRamMb, availRamMb, mcVer, loader, modCount, isModpack, shaderCount, usesZgc);
 
         var lastPlayed = ReadLastPlayed(dir, saved?.LastPlayedAt);
         bool useGlobal = saved?.UseGlobalSettings ?? true;
         bool autoMemory = saved?.AutoMemory ?? true;
-        string recommendedJvm = ComputeRecommendedJvmArgs(mcVer, bestJava);
-        string resolvedJvm = !string.IsNullOrWhiteSpace(saved?.JvmArgs) ? saved!.JvmArgs : recommendedJvm;
-        // 若首次识别/导入/下载的新版本最优 GC 与全局默认不兼容（如 Java 17/8 版本遇上全局 Gen-ZGC），自动以最优 GC 落地
+        // 若首次识别/导入/下载的新版本最优 GC 与全局默认不兼容（如 1.20.1 Java 17 或 1.12.2 Java 8 遇上全局 Gen-ZGC），自动以最优 GC 落地
         if (saved == null && useGlobal && !IsJvmArgsCompatibleWithJava(cfg.CustomJvmArgs, bestJava, mcVer))
         {
             useGlobal = false;
@@ -147,9 +148,10 @@ public sealed class InstanceManager
         };
     }
 
-    internal const string PresetGenZgc = "-XX:+UseZGC -XX:+ZGenerational -Dfile.encoding=UTF-8";
-    internal const string PresetG1Gc = "-XX:+UseG1GC -XX:MaxGCPauseMillis=30 -Dfile.encoding=UTF-8";
-    internal const string PresetShenandoah = "-XX:+UseShenandoahGC -Dfile.encoding=UTF-8";
+    internal const string PresetGenZgc = "-XX:+UseZGC -XX:+ZGenerational -XX:+DisableExplicitGC -Dfile.encoding=UTF-8";
+    internal const string PresetZgc17 = "-XX:+UseZGC -XX:+DisableExplicitGC -Dfile.encoding=UTF-8";
+    internal const string PresetG1Gc = "-XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=50 -XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC -XX:G1NewSizePercent=20 -XX:G1ReservePercent=15 -XX:InitiatingHeapOccupancyPercent=45 -Dfile.encoding=UTF-8";
+    internal const string PresetShenandoah = "-XX:+UseShenandoahGC -XX:+DisableExplicitGC -Dfile.encoding=UTF-8";
 
     internal static int RequiredJavaMajorForMc(string mcVersion)
     {
@@ -169,7 +171,12 @@ public sealed class InstanceManager
     {
         int javaMajor = java != null ? JavaManager.ParseMajor(java.Version) : RequiredJavaMajorForMc(mcVersion);
         if (javaMajor <= 0) javaMajor = RequiredJavaMajorForMc(mcVersion);
-        return javaMajor >= 21 ? PresetGenZgc : PresetG1Gc;
+        // Java 21+ (MC 1.20.5+/1.21+/26.x) -> Generational ZGC;
+        // Java 17-20 (MC 1.18-1.20.4, e.g. 1.20.1) -> ZGC;
+        // Java 8-16 (MC <= 1.17, e.g. 1.12.2 / 1.8.9) -> Tuned G1GC
+        if (javaMajor >= 21) return PresetGenZgc;
+        if (javaMajor >= 17) return PresetZgc17;
+        return PresetG1Gc;
     }
 
     internal static bool IsJvmArgsCompatibleWithJava(string? jvmArgs, JavaInstallation? java, string mcVersion)
@@ -177,7 +184,9 @@ public sealed class InstanceManager
         if (string.IsNullOrWhiteSpace(jvmArgs)) return true;
         int javaMajor = java != null ? JavaManager.ParseMajor(java.Version) : RequiredJavaMajorForMc(mcVersion);
         if (javaMajor <= 0) javaMajor = RequiredJavaMajorForMc(mcVersion);
-        if (javaMajor < 21 && (jvmArgs.Contains("ZGenerational", StringComparison.OrdinalIgnoreCase) || jvmArgs.Contains("UseZGC", StringComparison.OrdinalIgnoreCase)))
+        if (javaMajor < 21 && jvmArgs.Contains("ZGenerational", StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (javaMajor < 15 && jvmArgs.Contains("UseZGC", StringComparison.OrdinalIgnoreCase))
             return false;
         if (javaMajor < 12 && jvmArgs.Contains("UseShenandoahGC", StringComparison.OrdinalIgnoreCase))
             return false;

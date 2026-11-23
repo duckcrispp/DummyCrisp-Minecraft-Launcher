@@ -64,7 +64,6 @@ select {
 
 .splash-curtain.is-done {
   opacity: 0;
-  transform: translateY(-18px);
   visibility: hidden;
   pointer-events: none;
 }
@@ -640,30 +639,30 @@ html.is-desktop-host .win-controls {
 .drawer-top-actions {
   display: inline-flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
 .win-ctrl-btn--drawer-close {
-  width: 42px;
-  height: 42px;
+  width: 34px;
+  height: 34px;
   animation: none;
 }
 
 .win-ctrl-btn--drawer-close svg,
 .win-ctrl-btn--drawer-close .win-icon {
-  width: 17px;
-  height: 17px;
+  width: 14px;
+  height: 14px;
 }
 
 .emu-btn.emu-btn--drawer-pin {
-  width: 42px;
-  height: 42px;
+  width: 34px;
+  height: 34px;
   flex-shrink: 0;
 }
 
 .emu-btn.emu-btn--drawer-pin svg {
-  width: 18px;
-  height: 18px;
+  width: 14px;
+  height: 14px;
 }
 
 .win-ctrl-btn:hover .filled,
@@ -1333,7 +1332,8 @@ html.is-desktop-host .win-controls {
   flex-shrink: 0;
   width: 28px;
   height: 28px;
-  border-radius: 50%;
+  border-radius: 4px;
+  object-fit: cover;
   image-rendering: pixelated;
   border: 1.5px solid var(--line-solid);
   display: block;
@@ -1560,7 +1560,8 @@ html.is-desktop-host .win-controls {
 .account-row-avatar {
   width: 28px;
   height: 28px;
-  border-radius: 50%;
+  border-radius: 4px;
+  object-fit: cover;
   image-rendering: pixelated;
   border: 1.5px solid var(--line-solid);
   flex-shrink: 0;
@@ -1593,6 +1594,58 @@ html.is-desktop-host .win-controls {
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--text-muted);
+}
+
+.account-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.account-skin-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid var(--line-solid-subtle);
+  background: #ffffff;
+  color: #18181b;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.14);
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    transform 0.2s cubic-bezier(0.215, 0.61, 0.355, 1),
+    box-shadow 0.2s ease;
+}
+
+.account-skin-btn svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+
+.account-skin-btn.has-custom-skin {
+  background: #ffffff;
+  border-color: var(--accent-primary);
+  color: #18181b;
+}
+
+.account-skin-btn:hover {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: var(--text-on-accent);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px var(--accent-glow);
+}
+
+.account-skin-btn:active {
+  transform: scale(0.94);
 }
 
 .account-empty {
@@ -2398,26 +2451,62 @@ html.is-desktop-host .win-controls {
   overflow: hidden;
   transition:
     flex 0.24s cubic-bezier(0.22, 1, 0.36, 1),
-    border-radius 0.22s ease,
-    box-shadow 0.2s ease,
     filter 0.2s ease;
 }
 
+.cobra-color::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border-radius: 7px;
+  border: 2px solid transparent;
+  box-shadow: none;
+  pointer-events: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
 .cobra-color.is-selected {
-  flex: 1.45;
+  flex: 1.5;
   z-index: 1;
-  border-radius: 10px;
-  box-shadow: inset 0 0 0 2.5px #ffffff;
+}
+
+.cobra-color.is-selected::after {
+  border-color: rgba(255, 255, 255, 0.94);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.24),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.14);
+}
+
+.cobra-color.is-selected::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.26);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
 }
 
 .cobra-color:hover {
   flex: 1.85;
   z-index: 2;
-  border-radius: 10px;
+  filter: brightness(1.06);
+}
+
+.cobra-color:hover::after {
+  border-color: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.2);
+}
+
+.cobra-color.is-selected:hover::after {
+  border-color: #ffffff;
   box-shadow:
-    inset 0 0 0 2.5px #ffffff,
-    0 0 0 1.5px var(--accent-primary),
-    0 6px 18px rgba(0, 0, 0, 0.38);
+    0 0 0 1.5px rgba(0, 0, 0, 0.28),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.14);
 }
 
 .cobra-custom-btn {
@@ -3041,7 +3130,7 @@ html.is-desktop-host .win-controls {
   inset: 0;
   z-index: 110;
   background: var(--bg-primary);
-  padding: clamp(24px, 4vw, 48px);
+  padding: 0 clamp(18px, 3vw, 40px) clamp(24px, 4vw, 48px);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -3061,8 +3150,16 @@ html.is-desktop-host .win-controls {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding-bottom: 18px;
+  height: 67px;
+  min-height: 67px;
+  margin: 0 calc(-1 * clamp(18px, 3vw, 40px));
+  padding: 12px clamp(18px, 3vw, 40px);
   border-bottom: 1px solid var(--line-solid);
+  flex-shrink: 0;
+}
+
+:root[data-window-maximized="true"] .drawer-top {
+  padding-inline: clamp(12px, 1vw, 20px);
 }
 
 .drawer-nav-wrap {
@@ -3678,21 +3775,24 @@ html.is-desktop-host .win-controls {
   z-index: 24;
   display: grid;
   grid-template-rows: 0fr;
+  margin-bottom: 0;
   opacity: 0;
   transition:
     grid-template-rows 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    margin-bottom 220ms cubic-bezier(0.22, 1, 0.36, 1),
     opacity 170ms ease;
 }
 
 .filter-popover-slot.is-open {
   grid-template-rows: 1fr;
+  margin-bottom: 12px;
   opacity: 1;
 }
 
 .filter-popover-wrap {
   min-height: 0;
   overflow: hidden;
-  padding-bottom: 12px;
+  padding-bottom: 0;
 }
 
 .filter-popover-slot.is-settled,
@@ -4622,15 +4722,40 @@ html.is-desktop-host:not([data-window-maximized="true"]) .win-resize-edge {
   color: var(--accent-primary);
 }
 
-/* Disabled Row State (Dimmed + Crimson Wash, Borderless Pill) */
+/* Disabled Row State (Dimmed + Crimson Wash, Borderless Pill, Smooth GPU Hover) */
 .data-row.is-disabled-item {
   background: rgba(220, 38, 38, 0.14);
 }
 
 .data-row.is-disabled-item > *:not(.moth-toggle):not(.row-progress-bg) {
-  opacity: 0.56;
-  filter: brightness(0.84);
-  transition: opacity 0.25s ease, filter 0.25s ease;
+  opacity: 0.58;
+  transition:
+    transform 0.34s cubic-bezier(0.06, 0.58, 0.3, 1),
+    opacity 0.25s ease;
+}
+
+.mod-disabled-filter-btn {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+}
+
+.mod-disabled-filter-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.account-type-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.account-type-btn svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
 }
 
 /* Circular Checkmark/Cross Toggle (uiverse.io/ElsayedShamsEldeen/cuddly-moth-14) */
@@ -5072,23 +5197,47 @@ html.is-desktop-host:not([data-window-maximized="true"]) .win-resize-edge {
 }
 
 .data-row--dlqueue {
-  grid-template-columns: minmax(0, 1fr) minmax(100px, 220px) auto;
+  height: 66px;
+  min-height: 66px;
+  max-height: 66px;
+  grid-template-columns: minmax(0, 1fr) minmax(110px, 224px) auto;
   grid-template-areas: "content progress actions";
 }
 
 .data-row--dlqueue .row-left {
   grid-area: content;
   min-width: 0;
+  overflow: hidden;
+}
+
+.data-row--dlqueue .dl-text-col {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
 }
 
 .data-row--dlqueue .row-title-pair {
-  flex-wrap: wrap;
-  gap: 2px 10px;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  gap: 8px;
 }
 
-.data-row--dlqueue .data-row-title,
+.data-row--dlqueue .data-row-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.data-row--dlqueue .row-en-name {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 .data-row--dlqueue .data-row-sub {
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .data-row--dlqueue .mod-action-group {
@@ -5105,8 +5254,9 @@ html.is-desktop-host:not([data-window-maximized="true"]) .win-resize-edge {
 }
 
 .dl-progress-pct {
-  min-width: 40px;
+  min-width: 48px;
   text-align: right;
+  white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 
@@ -7038,20 +7188,24 @@ html.is-desktop-host:not([data-window-maximized="true"]) .win-resize-edge {
 
 .install-target-item {
   width: 100%;
-  min-height: 44px;
-  padding: 7px 15px;
+  height: 54px;
+  min-height: 54px;
+  max-height: 54px;
+  flex-shrink: 0;
+  padding: 0 16px;
   border-radius: 9999px;
   background: transparent;
-  border: none;
+  border: 1px solid transparent;
   color: var(--text-primary);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
   cursor: pointer;
   text-align: left;
   transition:
     background-color 0.22s ease,
+    border-color 0.22s ease,
     color 0.22s ease,
     transform 0.25s cubic-bezier(0.215, 0.61, 0.355, 1);
 }
@@ -7064,28 +7218,79 @@ html.is-desktop-host:not([data-window-maximized="true"]) .win-resize-edge {
 
 .install-target-item.is-active {
   background: var(--accent-primary);
+  border-color: var(--accent-primary);
   color: var(--text-on-accent);
 }
 
+.install-target-item.is-mismatch {
+  background: color-mix(in srgb, var(--accent-marker) 13%, transparent);
+  border-color: color-mix(in srgb, var(--accent-marker) 34%, transparent);
+  color: var(--accent-marker);
+}
+
+.install-target-item.is-mismatch:hover {
+  background: color-mix(in srgb, var(--accent-marker) 22%, transparent);
+  border-color: color-mix(in srgb, var(--accent-marker) 55%, transparent);
+  color: var(--accent-marker);
+}
+
+.install-target-item.is-mismatch.is-active {
+  background: var(--accent-marker);
+  border-color: var(--accent-marker);
+  color: #ffffff;
+}
+
+.install-target-item-main,
 .install-target-item-text {
   display: flex;
   flex-direction: column;
+  justify-content: center;
+  gap: 2px;
   min-width: 0;
+  flex: 1;
+  overflow: hidden;
 }
 
+.install-target-item-main strong,
 .install-target-item-text strong {
+  display: block;
   font-size: 13px;
+  font-weight: 700;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
+.install-target-item-main small,
 .install-target-item-text small {
-  margin-top: 2px;
+  display: block;
   font-family: var(--font-mono);
   font-size: 11px;
+  line-height: 1.2;
   opacity: 0.78;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
+.install-target-item-main small:empty,
+.install-target-item-text small:empty {
+  display: none;
+}
+
+.install-target-item.is-active .install-target-item-main small,
 .install-target-item.is-active .install-target-item-text small {
   opacity: 0.92;
+}
+
+.install-target-warn-tag {
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.01em;
 }
 
 .resource-install-confirm:disabled {
@@ -7105,6 +7310,126 @@ html.is-desktop-host:not([data-window-maximized="true"]) .win-resize-edge {
 .vdetail-mc-group:not(.is-open):not(:focus-within) {
   content-visibility: auto;
   contain-intrinsic-block-size: auto 68px;
+}
+
+/* DCL Brand Easter-Egg Popover (uiverse.io/gharsh11032000/spotty-zebra-83) */
+.vdetail-vanilla-only-note {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+}
+
+.dcl-star-popover {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 9500;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 15px;
+  border-radius: 12px;
+  background: var(--bg-elevated);
+  border: 1.5px solid var(--line-solid);
+  color: var(--text-primary);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.34);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  scale: 0;
+  transform-origin: 24px 0;
+  transition:
+    opacity 0.4s cubic-bezier(0.23, 1, 0.32, 1),
+    scale 0.4s cubic-bezier(0.23, 1, 0.32, 1),
+    visibility 0.4s cubic-bezier(0.23, 1, 0.32, 1),
+    transform 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.dcl-star-popover::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  left: 22px;
+  width: 10px;
+  height: 10px;
+  background: var(--bg-elevated);
+  border-left: 1.5px solid var(--line-solid);
+  border-top: 1.5px solid var(--line-solid);
+  transform: rotate(45deg);
+}
+
+.dcl-star-popover.is-open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  scale: 1;
+}
+
+.dcl-star-popover.is-shaking {
+  animation: dclSpottyShake 0.5s ease-in-out both;
+}
+
+@keyframes dclSpottyShake {
+  0% { rotate: 0deg; }
+  25% { rotate: 7deg; }
+  50% { rotate: -7deg; }
+  75% { rotate: 1deg; }
+  100% { rotate: 0deg; }
+}
+
+.dcl-star-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.dcl-star-text {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.dcl-star-link {
+  display: inline;
+  padding: 0 3px;
+  margin: 0 1px;
+  border: none;
+  background: transparent;
+  color: #f5c518;
+  font-family: var(--font-display);
+  font-size: inherit;
+  font-weight: 800;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: rgba(245, 197, 24, 0.55);
+  text-underline-offset: 3px;
+  transition: color 180ms ease, text-shadow 180ms ease, transform 180ms ease;
+}
+
+.dcl-star-link:hover,
+.dcl-star-link:focus-visible {
+  color: #ffe14d;
+  text-shadow: 0 0 10px rgba(245, 197, 24, 0.5);
+  outline: none;
+}
+
+.folder-item,
+.gallery-folder-card {
+  transition: filter 260ms ease, opacity 260ms ease, transform 260ms ease;
+}
+
+.folder-item.is-launch-locked,
+.gallery-folder-card.is-launch-locked {
+  filter: blur(4px) saturate(0.65);
+  opacity: 0.42;
+  pointer-events: none;
+  user-select: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -7162,10 +7487,13 @@ html.is-desktop-host:not([data-window-maximized="true"]) .win-resize-edge {
     grid-template-columns: 1fr;
   }
   .data-row--dlqueue {
+    height: 76px;
+    min-height: 76px;
+    max-height: 76px;
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas: "content actions" "progress actions";
     gap: 4px 12px;
-    border-radius: 18px;
+    border-radius: 9999px;
   }
   .data-row--dlqueue .row-progress-bg {
     border-radius: inherit;
@@ -7485,6 +7813,743 @@ html.is-desktop-host:not([data-window-maximized="true"]) .win-resize-edge {
   white-space: nowrap;
 }
 
+/* DCL Brand Easter-Egg Popover (uiverse.io/gharsh11032000/spotty-zebra-83) */
+.vdetail-vanilla-only-note {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+}
+
+.dcl-star-popover {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 9500;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 15px;
+  border-radius: 12px;
+  background: var(--bg-elevated);
+  border: 1.5px solid var(--line-solid);
+  color: var(--text-primary);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.34);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  scale: 0;
+  transform-origin: 24px 0;
+  transition:
+    opacity 0.4s cubic-bezier(0.23, 1, 0.32, 1),
+    scale 0.4s cubic-bezier(0.23, 1, 0.32, 1),
+    visibility 0.4s cubic-bezier(0.23, 1, 0.32, 1),
+    transform 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.dcl-star-popover::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  left: 22px;
+  width: 10px;
+  height: 10px;
+  background: var(--bg-elevated);
+  border-left: 1.5px solid var(--line-solid);
+  border-top: 1.5px solid var(--line-solid);
+  transform: rotate(45deg);
+}
+
+.dcl-star-popover.is-open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  scale: 1;
+}
+
+.dcl-star-popover.is-shaking {
+  animation: dclSpottyShake 0.5s ease-in-out both;
+}
+
+@keyframes dclSpottyShake {
+  0% { rotate: 0deg; }
+  25% { rotate: 7deg; }
+  50% { rotate: -7deg; }
+  75% { rotate: 1deg; }
+  100% { rotate: 0deg; }
+}
+
+.dcl-star-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.dcl-star-text {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.dcl-star-link {
+  display: inline;
+  padding: 0 3px;
+  margin: 0 1px;
+  border: none;
+  background: transparent;
+  color: #f5c518;
+  font-family: var(--font-display);
+  font-size: inherit;
+  font-weight: 800;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: rgba(245, 197, 24, 0.55);
+  text-underline-offset: 3px;
+  transition: color 180ms ease, text-shadow 180ms ease, transform 180ms ease;
+}
+
+.dcl-star-link:hover,
+.dcl-star-link:focus-visible {
+  color: #ffe14d;
+  text-shadow: 0 0 10px rgba(245, 197, 24, 0.5);
+  outline: none;
+}
+
+.folder-item,
+.gallery-folder-card {
+  transition: filter 260ms ease, opacity 260ms ease, transform 260ms ease;
+}
+
+.folder-item.is-launch-locked,
+.gallery-folder-card.is-launch-locked {
+  filter: blur(4px) saturate(0.65);
+  opacity: 0.42;
+  pointer-events: none;
+  user-select: none;
+}
+
+.manage-col-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+
+.feature-switch-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.feature-switch-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  border-top: 1px dotted var(--line-dotted);
+}
+
+.feature-switch-item:first-child {
+  border-top: none;
+  padding-top: 4px;
+}
+
+.feature-switch-item:last-child {
+  padding-bottom: 2px;
+}
+
+.feature-switch-meta {
+  min-width: 0;
+  flex: 1;
+}
+
+.feature-switch-title {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.35;
+}
+
+.feature-switch-desc {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+/* Default Feature Switch (uiverse.io/Galahhad/happy-warthog-87) */
+.dcl-feature-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.dcl-feature-switch__input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.dcl-feature-switch__slider {
+  width: 60px;
+  height: 30px;
+  background-color: color-mix(in srgb, var(--text-primary) 22%, var(--bg-primary));
+  border-radius: 20px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  border: 4px solid transparent;
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
+  box-shadow:
+    0 0 10px 0 rgba(0, 0, 0, 0.28) inset,
+    0 0 0 1px var(--line-solid-subtle);
+  cursor: pointer;
+}
+
+.dcl-feature-switch__slider::before {
+  content: "";
+  display: block;
+  width: 100%;
+  height: 100%;
+  background-color: #ffffff;
+  transform: translateX(-30px);
+  border-radius: 20px;
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), background-color 0.3s ease, box-shadow 0.3s ease;
+  box-shadow: 0 0 10px 3px rgba(0, 0, 0, 0.25);
+}
+
+.dcl-feature-switch__input:checked ~ .dcl-feature-switch__slider {
+  background-color: var(--accent-primary);
+  box-shadow:
+    0 0 10px 0 rgba(0, 0, 0, 0.22) inset,
+    0 0 0 1px var(--accent-primary);
+}
+
+.dcl-feature-switch__input:checked ~ .dcl-feature-switch__slider::before {
+  transform: translateX(30px);
+  background-color: var(--text-on-accent);
+  box-shadow: 0 0 10px 3px rgba(0, 0, 0, 0.25);
+}
+
+.dcl-feature-switch:active .dcl-feature-switch__slider::before,
+.dcl-feature-switch__input:active ~ .dcl-feature-switch__slider::before {
+  transform: translateX(0);
+}
+
+.dcl-feature-switch__input:focus-visible ~ .dcl-feature-switch__slider {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+/* ==========================================================================
+   Pure Home Mode (纯净主页) & Interactive 3D Minecraft Skin Showcase
+   ========================================================================== */
+.hero-right-stage {
+  position: relative;
+  min-width: 0;
+}
+
+.pure-home-drag-strip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 44px;
+  z-index: 75;
+  pointer-events: none;
+}
+
+body.is-pure-home .pure-home-drag-strip {
+  pointer-events: auto;
+}
+
+.pure-home-cue {
+  position: fixed;
+  top: 78px;
+  left: 50%;
+  z-index: 130;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28), 0 0 0 4px var(--accent-glow);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translate(-50%, -22px) scale(0.84);
+  transition:
+    opacity 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 240ms ease;
+}
+
+.pure-home-cue.is-exit-cue {
+  top: auto;
+  bottom: 28px;
+  transform: translate(-50%, 22px) scale(0.84);
+}
+
+.pure-home-cue.is-visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0) scale(1);
+}
+
+.pure-home-cue svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+
+/* Choreographed edge-exit transitions for normal home elements */
+.topbar,
+#player-account-slot,
+#version-art-slot,
+.launch-row,
+.emu-dock-row,
+.quick-panel-slot,
+.micro-dock,
+.folder-zone,
+#floating-download-ball,
+#hub-outlet {
+  transition:
+    transform 520ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 400ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 360ms ease,
+    background-color 280ms ease;
+}
+
+body.is-pure-home {
+  overflow: hidden;
+}
+
+body.is-pure-home .topbar {
+  transform: translateY(-115%);
+  opacity: 0;
+  border-bottom-color: transparent;
+  pointer-events: none;
+}
+
+body.is-pure-home #player-account-slot {
+  transform: translate(-56px, -68px);
+  opacity: 0;
+  pointer-events: none;
+}
+
+body.is-pure-home .emu-dock-row {
+  transform: translate(-84px, 52px);
+  opacity: 0;
+  pointer-events: none;
+}
+
+body.is-pure-home .quick-panel-slot {
+  transform: translate(-84px, 72px);
+  opacity: 0;
+  pointer-events: none;
+}
+
+body.is-pure-home .micro-dock {
+  transform: translate(-64px, 96px);
+  opacity: 0;
+  border-top-color: transparent;
+  pointer-events: none;
+}
+
+body.is-pure-home .version-art-meta-row,
+body.is-pure-home .version-java-warning {
+  opacity: 0;
+  transform: translateX(-40px);
+  pointer-events: none;
+  transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1), opacity 320ms ease;
+}
+
+body.is-pure-home #version-art-slot,
+body.is-pure-home .launch-row {
+  transform: translateY(0);
+}
+
+body.is-pure-home .folder-zone {
+  transform: translateX(118%);
+  opacity: 0;
+  border-left-color: transparent;
+  border-top-color: transparent;
+  pointer-events: none;
+}
+
+body.is-pure-home #floating-download-ball {
+  transform: translate(110px, 110px);
+  opacity: 0;
+  pointer-events: none;
+}
+
+body.is-pure-home #hub-outlet {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Right-side 3D Skin Showcase */
+.pure-skin-stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding-top: clamp(92px, 13.5vh, 138px);
+  padding-left: clamp(28px, 4.5vw, 68px);
+  gap: 10px;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateX(72px) scale(0.92);
+  transition:
+    opacity 360ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s linear 360ms;
+}
+
+body.is-pure-home .pure-skin-stage {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateX(0) scale(1);
+  transition:
+    opacity 440ms cubic-bezier(0.22, 1, 0.36, 1) 60ms,
+    transform 520ms cubic-bezier(0.22, 1, 0.36, 1) 40ms,
+    visibility 0s linear 0s;
+}
+
+.pure-skin-viewport {
+  position: relative;
+  width: 260px;
+  height: 276px;
+  perspective: 920px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.pure-skin-viewport.is-dragging {
+  cursor: grabbing;
+}
+
+.mc-skin-rig {
+  --arm-rx: -42px;
+  --arm-lx: 42px;
+  position: relative;
+  width: 0;
+  height: 224px;
+  transform-style: preserve-3d;
+  transform: translateY(-6px) rotateX(-8deg) rotateY(-24deg);
+  will-change: transform;
+}
+
+.mc-rig-body-motion {
+  position: relative;
+  width: 0;
+  height: 224px;
+  transform-style: preserve-3d;
+}
+
+.mc-part {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-style: preserve-3d;
+}
+
+.mc-part--head {
+  transform: translate3d(0, 56px, 0);
+  animation: mcIdleHead 5.4s ease-in-out infinite;
+}
+
+.mc-part--rarm {
+  transform: translate3d(var(--arm-rx, -42px), 56px, 0);
+  animation: mcIdleArmR 4.2s ease-in-out infinite;
+}
+
+.mc-part--larm {
+  transform: translate3d(var(--arm-lx, 42px), 56px, 0);
+  animation: mcIdleArmL 4.2s ease-in-out infinite;
+}
+
+.mc-part--rleg {
+  transform: translate3d(-14px, 140px, 0);
+}
+
+.mc-part--lleg {
+  transform: translate3d(14px, 140px, 0);
+}
+
+@keyframes mcIdleHead {
+  0%, 100% { transform: translate3d(0, 56px, 0) rotateY(0deg) rotateX(0deg); }
+  45% { transform: translate3d(0, 56px, 0) rotateY(8deg) rotateX(-2deg); }
+  75% { transform: translate3d(0, 56px, 0) rotateY(-6deg) rotateX(2deg); }
+}
+
+@keyframes mcIdleArmR {
+  0%, 100% { transform: translate3d(var(--arm-rx, -42px), 56px, 0) rotateX(2deg) rotateZ(2deg); }
+  50% { transform: translate3d(var(--arm-rx, -42px), 56px, 0) rotateX(-5deg) rotateZ(4.5deg); }
+}
+
+@keyframes mcIdleArmL {
+  0%, 100% { transform: translate3d(var(--arm-lx, 42px), 56px, 0) rotateX(-2deg) rotateZ(-2deg); }
+  50% { transform: translate3d(var(--arm-lx, 42px), 56px, 0) rotateX(5deg) rotateZ(-4.5deg); }
+}
+
+/* ---------- Minecraft Bedrock Edition Emote Animations ---------- */
+/* 1. Wave / Greeting (基岩版默认招手打招呼) */
+.mc-skin-rig.is-emote-wave .mc-rig-body-motion {
+  animation: mcEmoteWaveBody 1.85s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+.mc-skin-rig.is-emote-wave .mc-part--head {
+  animation: mcEmoteWaveHead 1.85s ease-in-out forwards;
+}
+.mc-skin-rig.is-emote-wave .mc-part--rarm {
+  animation: mcEmoteWaveArmR 1.85s cubic-bezier(0.25, 0.85, 0.35, 1) forwards;
+}
+.mc-skin-rig.is-emote-wave .mc-part--larm {
+  animation: mcEmoteWaveArmL 1.85s ease-in-out forwards;
+}
+
+@keyframes mcEmoteWaveBody {
+  0%, 100% { transform: translateY(0) rotateZ(0deg); }
+  20%, 78% { transform: translateY(-3px) rotateZ(-3.5deg); }
+}
+@keyframes mcEmoteWaveHead {
+  0%, 100% { transform: translate3d(0, 56px, 0) rotateY(0deg) rotateZ(0deg); }
+  22% { transform: translate3d(0, 56px, 0) rotateY(10deg) rotateZ(-8deg) rotateX(4deg); }
+  52% { transform: translate3d(0, 56px, 0) rotateY(6deg) rotateZ(-10deg) rotateX(2deg); }
+  78% { transform: translate3d(0, 56px, 0) rotateY(9deg) rotateZ(-6deg) rotateX(3deg); }
+}
+@keyframes mcEmoteWaveArmR {
+  0% { transform: translate3d(var(--arm-rx, -42px), 56px, 0) rotateX(2deg) rotateZ(2deg); }
+  18% { transform: translate3d(var(--arm-rx, -42px), 56px, 0) rotateX(20deg) rotateZ(150deg); }
+  32% { transform: translate3d(var(--arm-rx, -42px), 56px, 0) rotateX(18deg) rotateZ(128deg); }
+  46% { transform: translate3d(var(--arm-rx, -42px), 56px, 0) rotateX(22deg) rotateZ(164deg); }
+  60% { transform: translate3d(var(--arm-rx, -42px), 56px, 0) rotateX(18deg) rotateZ(130deg); }
+  74% { transform: translate3d(var(--arm-rx, -42px), 56px, 0) rotateX(20deg) rotateZ(160deg); }
+  100% { transform: translate3d(var(--arm-rx, -42px), 56px, 0) rotateX(2deg) rotateZ(2deg); }
+}
+@keyframes mcEmoteWaveArmL {
+  0%, 100% { transform: translate3d(var(--arm-lx, 42px), 56px, 0) rotateX(-2deg) rotateZ(-2deg); }
+  22%, 76% { transform: translate3d(var(--arm-lx, 42px), 56px, 0) rotateX(-6deg) rotateZ(-14deg); }
+}
+
+/* 2. Simple Clap (基岩版鼓掌) */
+.mc-skin-rig.is-emote-clap .mc-part--head {
+  animation: mcEmoteClapHead 1.95s ease-in-out forwards;
+}
+.mc-skin-rig.is-emote-clap .mc-part--rarm {
+  animation: mcEmoteClapArmR 1.95s ease-in-out forwards;
+}
+.mc-skin-rig.is-emote-clap .mc-part--larm {
+  animation: mcEmoteClapArmL 1.95s ease-in-out forwards;
+}
+
+@keyframes mcEmoteClapHead {
+  0%, 100% { transform: translate3d(0, 56px, 0) rotateX(0deg); }
+  25%, 50%, 75% { transform: translate3d(0, 56px, 0) rotateX(-9deg); }
+  37%, 62% { transform: translate3d(0, 56px, 0) rotateX(4deg); }
+}
+@keyframes mcEmoteClapArmR {
+  0%, 100% { transform: translate3d(var(--arm-rx, -42px), 56px, 0) rotateX(2deg) rotateY(0deg) rotateZ(2deg); }
+  16%, 38%, 60%, 80% { transform: translate3d(var(--arm-rx, -42px), 56px, 0) rotateX(76deg) rotateY(-24deg) rotateZ(-26deg); }
+  27%, 49%, 70% { transform: translate3d(var(--arm-rx, -42px), 56px, 0) rotateX(68deg) rotateY(-6deg) rotateZ(-6deg); }
+}
+@keyframes mcEmoteClapArmL {
+  0%, 100% { transform: translate3d(var(--arm-lx, 42px), 56px, 0) rotateX(-2deg) rotateY(0deg) rotateZ(-2deg); }
+  16%, 38%, 60%, 80% { transform: translate3d(var(--arm-lx, 42px), 56px, 0) rotateX(76deg) rotateY(24deg) rotateZ(26deg); }
+  27%, 49%, 70% { transform: translate3d(var(--arm-lx, 42px), 56px, 0) rotateX(68deg) rotateY(6deg) rotateZ(6deg); }
+}
+
+/* 3. Victory Cheer Hop (基岩版欢呼跳跃) */
+.mc-skin-rig.is-emote-cheer .mc-rig-body-motion {
+  animation: mcEmoteCheerBody 1.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+.mc-skin-rig.is-emote-cheer .mc-part--head {
+  animation: mcEmoteCheerHead 1.8s ease-in-out forwards;
+}
+.mc-skin-rig.is-emote-cheer .mc-part--rarm {
+  animation: mcEmoteCheerArmR 1.8s ease-in-out forwards;
+}
+.mc-skin-rig.is-emote-cheer .mc-part--larm {
+  animation: mcEmoteCheerArmL 1.8s ease-in-out forwards;
+}
+.mc-skin-rig.is-emote-cheer .mc-part--rleg {
+  animation: mcEmoteCheerLegR 1.8s ease-in-out forwards;
+}
+.mc-skin-rig.is-emote-cheer .mc-part--lleg {
+  animation: mcEmoteCheerLegL 1.8s ease-in-out forwards;
+}
+
+@keyframes mcEmoteCheerBody {
+  0%, 100% { transform: translateY(0); }
+  12% { transform: translateY(7px); }
+  30% { transform: translateY(-28px); }
+  48% { transform: translateY(4px); }
+  66% { transform: translateY(-24px); }
+  84% { transform: translateY(3px); }
+}
+@keyframes mcEmoteCheerHead {
+  0%, 100% { transform: translate3d(0, 56px, 0) rotateX(0deg); }
+  30%, 66% { transform: translate3d(0, 56px, 0) rotateX(12deg); }
+}
+@keyframes mcEmoteCheerArmR {
+  0%, 100% { transform: translate3d(var(--arm-rx, -42px), 56px, 0) rotateZ(2deg); }
+  24%, 72% { transform: translate3d(var(--arm-rx, -42px), 56px, 0) rotateX(12deg) rotateZ(156deg); }
+}
+@keyframes mcEmoteCheerArmL {
+  0%, 100% { transform: translate3d(var(--arm-lx, 42px), 56px, 0) rotateZ(-2deg); }
+  24%, 72% { transform: translate3d(var(--arm-lx, 42px), 56px, 0) rotateX(12deg) rotateZ(-156deg); }
+}
+@keyframes mcEmoteCheerLegR {
+  0%, 100%, 48%, 84% { transform: translate3d(-14px, 140px, 0) rotateZ(0deg); }
+  30%, 66% { transform: translate3d(-14px, 140px, 0) rotateZ(12deg) rotateX(-14deg); }
+}
+@keyframes mcEmoteCheerLegL {
+  0%, 100%, 48%, 84% { transform: translate3d(14px, 140px, 0) rotateZ(0deg); }
+  30%, 66% { transform: translate3d(14px, 140px, 0) rotateZ(-12deg) rotateX(14deg); }
+}
+
+/* 4. Curious Look Around (基岩版东张西望 / Over There) */
+.mc-skin-rig.is-emote-lookaround .mc-part--head {
+  animation: mcEmoteLookHead 2.4s ease-in-out forwards;
+}
+.mc-skin-rig.is-emote-lookaround .mc-part--rarm {
+  animation: mcEmoteLookArmR 2.4s ease-in-out forwards;
+}
+
+@keyframes mcEmoteLookHead {
+  0%, 100% { transform: translate3d(0, 56px, 0) rotateY(0deg) rotateX(0deg); }
+  22%, 38% { transform: translate3d(0, 56px, 0) rotateY(-36deg) rotateX(-4deg); }
+  62%, 78% { transform: translate3d(0, 56px, 0) rotateY(34deg) rotateX(5deg); }
+}
+@keyframes mcEmoteLookArmR {
+  0%, 100% { transform: translate3d(var(--arm-rx, -42px), 56px, 0) rotateX(2deg) rotateZ(2deg); }
+  25%, 74% { transform: translate3d(var(--arm-rx, -42px), 56px, 0) rotateX(118deg) rotateZ(24deg); }
+}
+
+/* 5. Follow Me (基岩版跟我来) */
+.mc-skin-rig.is-emote-followme .mc-rig-body-motion {
+  animation: mcEmoteFollowBody 1.9s ease-in-out forwards;
+}
+.mc-skin-rig.is-emote-followme .mc-part--head {
+  animation: mcEmoteFollowHead 1.9s ease-in-out forwards;
+}
+.mc-skin-rig.is-emote-followme .mc-part--rarm {
+  animation: mcEmoteFollowArmR 1.9s ease-in-out forwards;
+}
+
+@keyframes mcEmoteFollowBody {
+  0%, 100% { transform: rotateX(0deg); }
+  24%, 76% { transform: rotateX(-5deg); }
+}
+@keyframes mcEmoteFollowHead {
+  0%, 100% { transform: translate3d(0, 56px, 0) rotateX(0deg); }
+  30%, 66% { transform: translate3d(0, 56px, 0) rotateX(-12deg) rotateY(8deg); }
+  48% { transform: translate3d(0, 56px, 0) rotateX(6deg) rotateY(8deg); }
+}
+@keyframes mcEmoteFollowArmR {
+  0%, 100% { transform: translate3d(var(--arm-rx, -42px), 56px, 0) rotateX(2deg) rotateZ(2deg); }
+  20% { transform: translate3d(var(--arm-rx, -42px), 56px, 0) rotateX(48deg) rotateZ(12deg); }
+  38% { transform: translate3d(var(--arm-rx, -42px), 56px, 0) rotateX(142deg) rotateZ(18deg); }
+  54% { transform: translate3d(var(--arm-rx, -42px), 56px, 0) rotateX(54deg) rotateZ(12deg); }
+  74% { transform: translate3d(var(--arm-rx, -42px), 56px, 0) rotateX(142deg) rotateZ(18deg); }
+}
+
+/* 6. Happy Spin Hop (基岩版开心转圈) */
+.mc-skin-rig.is-emote-spin .mc-rig-body-motion {
+  animation: mcEmoteSpinBody 1.65s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+.mc-skin-rig.is-emote-spin .mc-part--rarm {
+  animation: mcEmoteSpinArmR 1.65s ease-in-out forwards;
+}
+.mc-skin-rig.is-emote-spin .mc-part--larm {
+  animation: mcEmoteSpinArmL 1.65s ease-in-out forwards;
+}
+
+@keyframes mcEmoteSpinBody {
+  0% { transform: translateY(0) rotateY(0deg); }
+  20% { transform: translateY(-20px) rotateY(90deg); }
+  52% { transform: translateY(-24px) rotateY(240deg); }
+  82% { transform: translateY(-6px) rotateY(350deg); }
+  100% { transform: translateY(0) rotateY(360deg); }
+}
+@keyframes mcEmoteSpinArmR {
+  0%, 100% { transform: translate3d(var(--arm-rx, -42px), 56px, 0) rotateZ(2deg); }
+  25%, 75% { transform: translate3d(var(--arm-rx, -42px), 56px, 0) rotateZ(74deg); }
+}
+@keyframes mcEmoteSpinArmL {
+  0%, 100% { transform: translate3d(var(--arm-lx, 42px), 56px, 0) rotateZ(-2deg); }
+  25%, 75% { transform: translate3d(var(--arm-lx, 42px), 56px, 0) rotateZ(-74deg); }
+}
+
+.mc-box {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-style: preserve-3d;
+}
+
+.mc-face {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+  image-rendering: pixelated;
+  backface-visibility: visible;
+}
+
+.pure-skin-shadow {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  width: 118px;
+  height: 22px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.32) 0%, rgba(0, 0, 0, 0) 72%);
+  pointer-events: none;
+}
+
+.pure-skin-uid {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: var(--text-primary);
+  text-align: center;
+  background: transparent;
+  border: none;
+  padding: 2px 4px;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .reveal-block,
   .splash-curtain,
@@ -7508,7 +8573,9 @@ html.is-desktop-host:not([data-window-maximized="true"]) .win-resize-edge {
   .launcher-dialog.is-closing,
   .account-popover,
   .account-popover.is-open .account-row,
-  .vdetail-dep-card {
+  .vdetail-dep-card,
+  .dcl-feature-switch__slider,
+  .dcl-feature-switch__slider::before {
     transition: none;
     animation: none;
   }

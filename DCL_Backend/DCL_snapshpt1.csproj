@@ -10,8 +10,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>false</SelfContained>
+    <EnableCompressionInSingleFile Condition="'$(SelfContained)' == 'true'">true</EnableCompressionInSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <RollForward>Major</RollForward>
+    <SatelliteResourceLanguages>zh-Hans;en</SatelliteResourceLanguages>
     <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
     <AllowedReferenceRelatedFileExtensions>none</AllowedReferenceRelatedFileExtensions>
     <Optimize>true</Optimize>
     <TieredCompilation>true</TieredCompilation>
@@ -20,6 +24,19 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
   </ItemGroup>
+
+  <!-- Remove unused WPF WebView2 assembly & non-x64 native loaders (app uses WinForms on win-x64) -->
+  <Target Name="StripUnusedWebView2Assets" BeforeTargets="ResolveAssemblyReferences">
+    <ItemGroup>
+      <Reference Remove="@(Reference)" Condition="'%(Filename)' == 'Microsoft.Web.WebView2.Wpf'" />
+    </ItemGroup>
+  </Target>
+  <Target Name="StripUnusedWebView2PublishFiles" AfterTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(Filename)' == 'Microsoft.Web.WebView2.Wpf'" />
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="$([System.String]::Copy('%(RelativePath)').Contains('win-x86')) Or $([System.String]::Copy('%(RelativePath)').Contains('win-arm64'))" />
+    </ItemGroup>
+  </Target>
 
   <ItemGroup>
     <EmbeddedResource Include="app.ico" LogicalName="DCL_Launcher.app.ico" />

@@ -18,7 +18,10 @@ public sealed class HostBridge
     private readonly GameLauncher _launcher;
     private readonly CurseForgeService _curseForge;
     private readonly ModpackInstaller _packInstaller;
+    private readonly OfflineSkinServer _skinServer = new();
     private readonly object _workspaceRefreshLock = new();
+    private readonly Task _workspaceInitTask;
+    private Task _activeResourcesTask = Task.CompletedTask;
     private Task? _javaScanTask;
     private (string Token, string Path)? _resourceInstallFolder;
     private (string Token, string Path)? _javaInstallFolder;
@@ -26,6 +29,8 @@ public sealed class HostBridge
     private readonly ConcurrentDictionary<string, (DateTimeOffset Expires, Dictionary<string, object?> Project, List<ResourceFile> Files)> _resourceCache = new();
 
     public bool AlwaysOnTop => _cfg.AlwaysOnTop;
+    public string ThemeId => string.IsNullOrWhiteSpace(_cfg.ThemeId) ? "obsidian-yellow" : _cfg.ThemeId;
+    public Task EnsureWorkspaceReadyAsync() => _workspaceInitTask;
 
     public bool SetAlwaysOnTop(bool pinned)
     {
@@ -70,7 +75,7 @@ public sealed class HostBridge
 
     public event Action<string, object?>? PushEvent;
 
-    public HostBridge(StorageService storage, HttpClient? http = null, bool startOnlineServices = true)
+    public HostBridge(StorageService storage, HttpClient? http = null, bool startOnlineServices = true, bool deferWorkspaceScan = false)
     {
         _storage = storage;
         _http = http ?? new HttpClient(new SocketsHttpHandler
@@ -98,13 +103,47 @@ public sealed class HostBridge
         _packInstaller = new ModpackInstaller(_storage, _dlMgr, _mcApi, _curseForge);
 
         _cfg = _storage.LoadConfig();
+        _dlMgr.BypassSystemProxy = () => _cfg.BypassSystemProxyOnDownload;
+        _javaMgr.ResolveDownloadHttp = () => _cfg.BypassSystemProxyOnDownload ? _dlMgr.DirectHttp : _http;
         _dlMgr.RestoreQueue(ExecuteJobAsync);
         _mcApi.SelectSource = () => DownloadSource;
         _curseForge.SelectSource = () => DownloadSource;
         _dlMgr.TasksChanged += () => PushEvent?.Invoke("download_updated", _dlMgr.GetTasksSnapshot());
 
         _catalogVersions = _mcApi.CachedVersions();
-        RefreshLocalWorkspace();
+        if (deferWorkspaceScan)
+        {
+            // Phase 1 (fast <30ms): scan local Javas & instance list without unzipping hundreds of mod JARs
+            _workspaceInitTask = Task.Run(() =>
+            {
+                try { RefreshCoreWorkspaceFast(); }
+                catch (Exception ex) { _storage.Log($"Startup fast workspace scan failed: {ex.Message}"); }
+            });
+            // Phase 2 (background): scan active instance mods/packs & crash logs silently after Home renders
+            _activeResourcesTask = _workspaceInitTask.ContinueWith(_ =>
+            {
+                try
+                {
+                    RefreshDeferredActiveResources();
+                    PushEvent?.Invoke("active_resources_ready", new
+                    {
+                        installedMods = _mods,
+                        installedPacks = _packs,
+                        crashLines = _latestCrashLines
+                    });
+                }
+                catch (Exception ex)
+                {
+                    _storage.Log($"Background mod/resource scan failed: {ex.Message}");
+                }
+            }, TaskScheduler.Default);
+        }
+        else
+        {
+            RefreshLocalWorkspace();
+            _workspaceInitTask = Task.CompletedTask;
+            _activeResourcesTask = Task.CompletedTask;
+        }
         if (startOnlineServices)
         {
             _ = BackgroundSyncOnlineCatalogAsync();
@@ -188,6 +227,33 @@ public sealed class HostBridge
         };
     }
 
+    private void RefreshCoreWorkspaceFast()
+    {
+        lock (_workspaceRefreshLock)
+        {
+            var (totalRam, availRam) = SystemMemoryHelper.GetSystemMemoryMb();
+            _javas = _javaMgr.ScanLocalJavas(_cfg.ActiveJavaId);
+            _instances = _instMgr.ScanVersions(_cfg, _javas, totalRam, availRam);
+
+            if (!_instances.Any(i => i.Id == _cfg.ActiveInstanceId))
+                _cfg.ActiveInstanceId = _instances.FirstOrDefault()?.Id ?? "";
+            if (_cfg.AutoMemory)
+            {
+                _cfg.MemoryMb = ComputeAutoMemoryForActive(totalRam, availRam);
+            }
+            _storage.SaveConfig(_cfg);
+        }
+    }
+
+    private void RefreshDeferredActiveResources()
+    {
+        lock (_workspaceRefreshLock)
+        {
+            RefreshActiveResources();
+            _latestCrashLines = _launcher.AnalyzeCrashLogs(_storage.GameDirectory(_cfg.ActiveInstanceId));
+        }
+    }
+
     public void RefreshLocalWorkspace()
     {
         lock (_workspaceRefreshLock)
@@ -212,6 +278,13 @@ public sealed class HostBridge
     {
         int mods = inst != null ? inst.ModsCount : _mods.Count(m => m.Enabled);
         int shaders = inst != null ? _instMgr.CountShaders(inst.Id) : 0;
+        var java = inst != null
+            ? (_javas.FirstOrDefault(j => j.MatchesId(inst.JavaId)) ?? _javas.FirstOrDefault(j => j.Active))
+            : _javas.FirstOrDefault(j => j.Active);
+        string effJvm = inst != null
+            ? InstanceManager.ResolveEffectiveJvmArgs(inst, java, _cfg)
+            : _cfg.CustomJvmArgs;
+        bool usesZgc = effJvm.Contains("UseZGC", StringComparison.OrdinalIgnoreCase);
         return SystemMemoryHelper.ComputeRecommendedMemoryMb(
             totalRam,
             availRam,
@@ -219,7 +292,8 @@ public sealed class HostBridge
             inst?.Loader,
             mods,
             inst?.IsModpack ?? false,
-            shaders);
+            shaders,
+            usesZgc);
     }
 
     private int ComputeAutoMemoryForActive(int totalRam, int availRam)
@@ -305,6 +379,8 @@ public sealed class HostBridge
             themeId = _cfg.ThemeId,
             bgPatternId = _cfg.BgPatternId == "festive" ? "festive" : "none",
             alwaysOnTop = _cfg.AlwaysOnTop,
+            bypassSystemProxyOnDownload = _cfg.BypassSystemProxyOnDownload,
+            disableChineseResourceNames = _cfg.DisableChineseResourceNames,
             hasMicrosoftClientId = MicrosoftClientId.Length > 0,
             hasCurseForgeApiKey = CurseForgeKey.Length > 0,
             curseForgeApiRoute = CurseForgeApiRoute,
@@ -318,8 +394,19 @@ public sealed class HostBridge
             },
             accounts,
             account = activeAcc != null
-                ? new { loggedIn = true, id = activeAcc.Id, username = activeAcc.Username, uuid = activeAcc.Uuid, type = activeAcc.Type, avatar = activeAcc.Avatar }
-                : new { loggedIn = false, id = "", username = "", uuid = "-", type = "未登录", avatar = "" },
+                ? new
+                {
+                    loggedIn = true,
+                    id = activeAcc.Id,
+                    username = activeAcc.Username,
+                    uuid = activeAcc.Uuid,
+                    type = activeAcc.Type,
+                    avatar = activeAcc.Avatar,
+                    hasCustomSkin = !string.IsNullOrWhiteSpace(activeAcc.SkinPath) && File.Exists(activeAcc.SkinPath),
+                    skinModel = activeAcc.SkinModel,
+                    skinUrl = BuildSkinRouteUrl(activeAcc.SkinPath)
+                }
+                : new { loggedIn = false, id = "", username = "", uuid = "-", type = "未登录", avatar = "", hasCustomSkin = false, skinModel = "default", skinUrl = "" },
             instances = _instances,
             installedMods = _mods,
             installedPacks = _packs,
@@ -341,6 +428,7 @@ public sealed class HostBridge
         switch (cmd)
         {
             case "get_state":
+                await EnsureWorkspaceReadyAsync();
                 return BuildStateDto();
 
             case "set_theme":
@@ -356,6 +444,37 @@ public sealed class HostBridge
                 _cfg.BgPatternId = nextPattern == "festive" ? "festive" : "none";
                 _storage.SaveConfig(_cfg);
                 return new { bgPatternId = _cfg.BgPatternId };
+            }
+
+            case "set_feature_flags":
+            {
+                bool proxyChanged = false;
+                if (payload.TryGetProperty("bypassSystemProxyOnDownload", out var bp) && bp.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                {
+                    bool next = bp.GetBoolean();
+                    if (_cfg.BypassSystemProxyOnDownload != next)
+                    {
+                        _cfg.BypassSystemProxyOnDownload = next;
+                        proxyChanged = true;
+                    }
+                }
+                if (payload.TryGetProperty("disableChineseResourceNames", out var dcn) && dcn.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                {
+                    _cfg.DisableChineseResourceNames = dcn.GetBoolean();
+                }
+                _storage.SaveConfig(_cfg);
+                if (proxyChanged)
+                {
+                    _storage.Log(_cfg.BypassSystemProxyOnDownload
+                        ? "已开启：绕过代理（仅下载资源时绕过系统代理/VPN 直连）"
+                        : "已关闭：绕过代理（恢复遵循系统代理设置）");
+                    _ = ProbeMirrorsAndMaybeSwitchAsync(CancellationToken.None);
+                }
+                return new
+                {
+                    bypassSystemProxyOnDownload = _cfg.BypassSystemProxyOnDownload,
+                    disableChineseResourceNames = _cfg.DisableChineseResourceNames
+                };
             }
 
             case "set_active_instance":
@@ -584,6 +703,7 @@ public sealed class HostBridge
 
             case "toggle_mod":
             {
+                await _activeResourcesTask;
                 if (_cfg.ActiveInstanceId.Length == 0) return null;
                 var mod = _instMgr.ToggleMod(_cfg.ActiveInstanceId, GetStr(payload, "id"));
                 RefreshActiveResources();
@@ -593,6 +713,7 @@ public sealed class HostBridge
 
             case "delete_mod":
             {
+                await _activeResourcesTask;
                 bool ok = _cfg.ActiveInstanceId.Length > 0 && _instMgr.DeleteMod(_cfg.ActiveInstanceId, GetStr(payload, "id"));
                 RefreshActiveResources();
                 SyncAutoMemoryForInstance(_instances.FirstOrDefault(i => i.Id == _cfg.ActiveInstanceId));
@@ -601,6 +722,7 @@ public sealed class HostBridge
 
             case "toggle_pack":
             {
+                await _activeResourcesTask;
                 if (_cfg.ActiveInstanceId.Length == 0) return null;
                 var pack = _instMgr.TogglePack(_cfg.ActiveInstanceId, GetStr(payload, "id"));
                 RefreshActiveResources();
@@ -815,6 +937,10 @@ public sealed class HostBridge
                         ["type"] = vItem?["type"] ?? "正式版",
                         ["java"] = vItem?["java"] ?? "Java 21",
                         ["source"] = "Mojang Studios",
+                        ["links"] = new Dictionary<string, string>
+                        {
+                            ["mcwiki"] = BuildMinecraftWikiUrl(id)
+                        },
                         ["loaders"] = trees.Keys.Count > 0 ? trees.Keys.ToList() : new List<string>(),
                         ["loaderTrees"] = trees
                     };
@@ -1040,6 +1166,29 @@ public sealed class HostBridge
                         using var authTimeout = CancellationTokenSource.CreateLinkedTokenSource(preSpawnCts.Token);
                         authTimeout.CancelAfter(TimeSpan.FromSeconds(30));
                         var account = await _accMgr.EnsureFreshAsync(acc, MicrosoftClientId, authTimeout.Token);
+                        List<string>? extraJvmArgs = null;
+                        if (account != null &&
+                            !account.Type.Contains("Microsoft", StringComparison.OrdinalIgnoreCase) &&
+                            !string.IsNullOrWhiteSpace(account.SkinPath) &&
+                            File.Exists(account.SkinPath))
+                        {
+                            try
+                            {
+                                _skinServer.RegisterSkin(account.Uuid, account.Username, account.SkinPath, account.SkinModel);
+                                using var skinCts = CancellationTokenSource.CreateLinkedTokenSource(preSpawnCts.Token);
+                                skinCts.CancelAfter(TimeSpan.FromSeconds(15));
+                                string? agentJar = await _skinServer.EnsureAuthlibInjectorAsync(_storage, _dlMgr, skinCts.Token);
+                                if (!string.IsNullOrWhiteSpace(agentJar) && File.Exists(agentJar))
+                                {
+                                    extraJvmArgs = _skinServer.BuildJvmAgentArgs(agentJar);
+                                    _storage.Log($"已挂载离线自定义皮肤 ({account.Username} · {account.SkinModel}) -> {_skinServer.BaseUrl}");
+                                }
+                            }
+                            catch (Exception skinEx)
+                            {
+                                _storage.Log($"离线皮肤挂载跳过：{skinEx.Message}");
+                            }
+                        }
                         var res = await _launcher.LaunchAsync(inst, java, account, memMb, jvmArgs,
                             pct =>
                             {
@@ -1050,16 +1199,18 @@ public sealed class HostBridge
                                     PushEvent?.Invoke("game_process_started", new { instanceId = inst.Id });
                                 }
                                 PushEvent?.Invoke("launch_progress", new { instanceId = inst.Id, progress = pct });
-                            }, CancellationToken.None, preSpawnCts.Token);
+                            }, CancellationToken.None, preSpawnCts.Token, extraJvmArgs);
                         if (_pendingPreSpawnLaunches.TryRemove(inst.Id, out var remCts)) remCts.Dispose();
                         if (!res.Ok)
                         {
                             _storage.Log($"游戏启动失败 [{inst.Id}]：{res.Message}");
                             _latestCrashLines = res.CrashLines;
+                            PushEvent?.Invoke("game_process_exited", new { instanceId = inst.Id });
                             PushEvent?.Invoke("crash_detected", new { instanceId = inst.Id, message = res.Message, lines = res.CrashLines });
                         }
                         else
                         {
+                            PushEvent?.Invoke("game_process_exited", new { instanceId = inst.Id });
                             PushEvent?.Invoke("toast", res.Message);
                         }
                     }
@@ -1131,10 +1282,52 @@ public sealed class HostBridge
         }
     }
 
+    private static string BuildMinecraftWikiUrl(string id)
+    {
+        string raw = (id ?? "").Trim();
+        string page = raw switch
+        {
+            var s when s.Length > 1 && s[0] == 'b' && char.IsDigit(s[1]) => $"Java版Beta_{s[1..]}",
+            var s when s.Length > 1 && s[0] == 'a' && char.IsDigit(s[1]) => $"Java版Alpha_v{s[1..]}",
+            var s when s.Length > 1 && s[0] == 'c' && char.IsDigit(s[1]) => $"Java版Classic_{s[1..]}",
+            var s when s.StartsWith("inf-", StringComparison.OrdinalIgnoreCase) => $"Java版Infdev_{s[4..]}",
+            var s when s.StartsWith("rd-", StringComparison.OrdinalIgnoreCase) => $"Java版Pre-Classic_{s}",
+            _ => $"Java版{raw}"
+        };
+        return "https://zh.minecraft.wiki/w/" + Uri.EscapeDataString(page);
+    }
+
+    private static string BuildSkinRouteUrl(string? skinPath)
+    {
+        if (string.IsNullOrWhiteSpace(skinPath) || !File.Exists(skinPath)) return "";
+        long ticks = File.GetLastWriteTimeUtc(skinPath).Ticks;
+        return $"{StorageService.SkinAssetRoute}{Path.GetFileName(skinPath)}?v={ticks}";
+    }
+
     private static object PublicAccount(AccountEntry account) => new
     {
-        loggedIn = true, account.Id, account.Username, account.Uuid, account.Type, account.Avatar
+        loggedIn = true,
+        account.Id,
+        account.Username,
+        account.Uuid,
+        account.Type,
+        account.Avatar,
+        hasCustomSkin = !string.IsNullOrWhiteSpace(account.SkinPath) && File.Exists(account.SkinPath),
+        skinModel = account.SkinModel,
+        skinUrl = BuildSkinRouteUrl(account.SkinPath)
     };
+
+    internal object? SetOfflineAccountSkin(string accountId, string sourcePngPath)
+    {
+        var (skinPath, skinModel, avatarRoute) = OfflineSkinServer.ImportSkinPng(sourcePngPath, accountId, _storage);
+        var updated = _accMgr.SetOfflineSkin(accountId, skinPath, skinModel, avatarRoute);
+        if (updated == null) return null;
+        _skinServer.RegisterSkin(updated.Uuid, updated.Username, skinPath, skinModel);
+        _storage.Log($"已为离线账号 {updated.Username} 导入本地皮肤（模型：{skinModel}）");
+        // Proactively cache authlib-injector while online so future fully-offline launches work seamlessly
+        _ = Task.Run(() => _skinServer.EnsureAuthlibInjectorAsync(_storage, _dlMgr, CancellationToken.None));
+        return PublicAccount(updated);
+    }
 
     private async Task<DownloadTaskEntry> QueueModpackAsync(string reference, string buildId, string icon, string mirror)
     {

@@ -7,11 +7,11 @@
   const PORTAL_CATALOG = {
     download: {
       eyebrow: "// DOWNLOAD",
-      title: "下载资源",
+      title: "资源下载",
       accent: "DOWNLOAD",
       cards: [
         { icon: "cube", title: "游戏版本", sub: "GAME VERSIONS", route: "download-versions" },
-        { icon: "puzzle", title: "模组资源", sub: "MOD RESOURCES", route: "download-mods" },
+        { icon: "puzzle", title: "模组", sub: "MODS", route: "download-mods" },
         { icon: "pack", title: "资源包", sub: "RESOURCE PACKS", route: "download-packs" },
         { icon: "sun", title: "光影包", sub: "SHADER PACKS", route: "download-shaders" },
         { icon: "box", title: "整合包", sub: "MODPACKS", route: "download-modpacks" }
@@ -65,6 +65,7 @@
   let javaVendor = "temurin";
   let javaInstallPath = "";
   let javaInstallToken = "";
+  let modOnlyDisabled = false;
   let lastKnownTotalHits = 0;
   const pendingLaunchIds = new Set();
   const pendingSimTimers = new Map();
@@ -84,6 +85,7 @@
         favPage,
         modPage,
         modQuery,
+        modOnlyDisabled,
         loaderFilter,
         sourceFilter,
         sortFilter,
@@ -111,6 +113,7 @@
     currentPage = 1;
     modPage = 1;
     modQuery = "";
+    modOnlyDisabled = false;
     loaderFilter = "all";
     sourceFilter = "all";
     sortFilter = "downloads";
@@ -475,14 +478,16 @@
     refreshInstallSelection();
   }
 
-  function appendInstallOption(title, subtitle, { instanceId = "", folderToken = "", warning = "" } = {}) {
+  function appendInstallOption(title, subtitle, { instanceId = "", folderToken = "", warning = "", match = "" } = {}) {
     const key = folderToken ? `folder:${folderToken}` : `inst:${instanceId}`;
-    const item = { key, title, subtitle, instanceId, folderToken, warning };
+    const item = { key, title, subtitle, instanceId, folderToken, warning, match };
     installTargetItems.push(item);
 
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "install-target-item";
+    if (match === "VersionMismatch") btn.classList.add("is-mismatch");
+    else if (match === "LoaderMismatch") btn.classList.add("is-loader-mismatch");
     btn.setAttribute("role", "option");
     btn.setAttribute("data-target-key", key);
     btn.setAttribute("aria-selected", "false");
@@ -532,6 +537,7 @@
           .filter(Boolean).join(" · ");
         appendInstallOption(target.name, details, {
           instanceId: target.id,
+          match: target.match || "",
           warning: issue ? `${issue}，仍可安装，但游戏可能无法加载此资源。` : ""
         });
       });
@@ -820,23 +826,50 @@
     }, 1800);
   }
 
+  function matchesJvmPreset(presetArgs, currentArgs) {
+    const p = String(presetArgs || "");
+    const val = String(currentArgs || "");
+    if (p.includes("ZGenerational")) return val.includes("ZGenerational");
+    if (p.includes("UseZGC")) return val.includes("UseZGC") && !val.includes("ZGenerational");
+    if (p.includes("UseG1GC")) return val.includes("UseG1GC");
+    if (p.includes("UseShenandoahGC")) return val.includes("UseShenandoahGC");
+    return p.trim().length > 0 && p.trim() === val.trim();
+  }
+
+  function syncFolderLaunchLockUi() {
+    const hasPending = pendingLaunchIds.size > 0;
+    document.querySelectorAll(".folder-item[data-select-inst], .gallery-folder-card[data-gallery-pick-inst]").forEach((card) => {
+      const id = card.getAttribute("data-select-inst") || card.getAttribute("data-gallery-pick-inst");
+      const locked = Boolean(hasPending && id && !pendingLaunchIds.has(id));
+      card.classList.toggle("is-launch-locked", locked);
+      card.setAttribute("aria-disabled", String(locked));
+      if (locked) card.setAttribute("tabindex", "-1");
+      else card.setAttribute("tabindex", "0");
+    });
+  }
+
   function syncLaunchButtonUi(state) {
     const hasInst = Boolean(state && Array.isArray(state.instances) && state.instances.length > 0);
     const activeId = state?.activeInstanceId || "";
     const isPending = Boolean(hasInst && activeId && pendingLaunchIds.has(activeId));
     const launchBtn = document.getElementById("btn-launch-game");
-    if (!launchBtn) return;
-    launchBtn.disabled = !hasInst;
-    launchBtn.classList.toggle("is-disabled", !hasInst);
-    launchBtn.classList.toggle("is-hollow", isPending);
-    launchBtn.setAttribute("aria-disabled", String(!hasInst));
-    launchBtn.innerHTML = !hasInst
-      ? "<span>暂无可启动版本</span><span>→</span>"
-      : isPending
-        ? "<span>取消</span><span>×</span>"
-        : "<span>启动游戏</span><span>→</span>";
-    if (isPending) launchBtn.setAttribute("data-cancel-pending-launch", "true");
-    else launchBtn.removeAttribute("data-cancel-pending-launch");
+    if (launchBtn) {
+      launchBtn.disabled = !hasInst;
+      launchBtn.classList.toggle("is-disabled", !hasInst);
+      launchBtn.classList.toggle("is-hollow", isPending);
+      launchBtn.setAttribute("aria-disabled", String(!hasInst));
+      launchBtn.innerHTML = !hasInst
+        ? "<span>暂无可启动版本</span><span>→</span>"
+        : isPending
+          ? "<span>取消</span><span>×</span>"
+          : "<span>START</span><span>→</span>";
+      if (isPending) {
+        launchBtn.setAttribute("data-cancel-pending-launch", "true");
+        if (typeof stopPureEmotes === "function") stopPureEmotes();
+      }
+      else launchBtn.removeAttribute("data-cancel-pending-launch");
+    }
+    syncFolderLaunchLockUi();
   }
 
   function syncVersionJavaWarningUi(state) {
@@ -1329,6 +1362,10 @@
   window.addEventListener(
     "wheel",
     (e) => {
+      if (pureHomeActive || Date.now() < pureExitSnapUntil) {
+        e.preventDefault();
+        return;
+      }
       if (prefersReducedMotion() || installDialog.open || microsoftDialog.open) return;
       if (usesNativeListScrolling()) {
         if (scrollRafId !== null) {
@@ -1552,10 +1589,7 @@
       }
       document.querySelectorAll("[data-quick-jvm-preset]").forEach((b) => {
         const p = b.getAttribute("data-quick-jvm-preset") || "";
-        const match = (p.includes("UseZGC") && effectiveJvmArgs.includes("UseZGC"))
-          || (p.includes("UseG1GC") && effectiveJvmArgs.includes("UseG1GC"))
-          || (p.includes("UseShenandoahGC") && effectiveJvmArgs.includes("UseShenandoahGC"));
-        b.classList.toggle("is-active", match);
+        b.classList.toggle("is-active", matchesJvmPreset(p, effectiveJvmArgs));
       });
     } else if (openPanel && activeQuickPanel === "mods") {
       syncQuickPanelUi(state, { quiet: true });
@@ -1592,6 +1626,9 @@
     const slot = document.getElementById("player-account-slot");
     if (slot) {
       slot.innerHTML = window.LauncherViews.renderPlayerAccountControl(state, accountMenuOpen, offlineAddOpen);
+    }
+    if (typeof syncPureSkinStage === "function") {
+      syncPureSkinStage(state, { force: true });
     }
     if (activeSubRoute === "auth-java") {
       syncSubWorkspaceSlot(state, { preserveAnimation: true });
@@ -2167,7 +2204,7 @@
     const dlTextEl = document.getElementById("vdetail-download-btn-text");
     if (dlBtn && dlTextEl && isVersionDetail) {
       const keys = Object.keys(selected).filter((k) => Boolean(selected[k]));
-      const nextLabel = keys.length > 0 ? `下载${detail.id} ${keys.join("+")}` : `下载${detail.id} 原版`;
+      const nextLabel = keys.length > 0 ? `下载${detail.id} ${keys.join("+")}` : `下载${detail.id}`;
       if (dlTextEl.textContent !== nextLabel) {
         if (!prefersReducedMotion()) {
           clearTimeout(dlBtnWidthTimer);
@@ -2319,8 +2356,11 @@
           r.classList.add("is-inview");
         });
       }
+      if (typeof syncPureSkinStage === "function") syncPureSkinStage(state);
+      if (activeHubConfig && typeof setPureHomeMode === "function") setPureHomeMode(false);
       observeReveals();
       syncBgPatternButtonUi();
+      syncFolderLaunchLockUi();
       if (activeHubConfig) {
         initMasonryMotion(!opts.animateMasonry);
       }
@@ -2331,6 +2371,7 @@
     } else if (currentRoute === "instance-gallery") {
       appRoot.innerHTML = window.LauncherViews.renderInstanceGalleryView(state);
       observeReveals();
+      syncFolderLaunchLockUi();
       clearTimeout(gallerySettleTimer);
       gallerySettleTimer = setTimeout(() => {
         const g = document.querySelector("#folder-gallery-page .folder-gallery-grid");
@@ -3093,9 +3134,92 @@
         document.querySelectorAll("#account-popover .account-row").forEach((r) => {
           r.classList.toggle("is-current", r.getAttribute("data-acc-row") === acc.id);
         });
+        const stAfterSwitch = window.LauncherBridge.getStateSync();
+        if (stAfterSwitch && acc) {
+          stAfterSwitch.account = Object.assign({}, stAfterSwitch.account || {}, acc, { loggedIn: true });
+        }
+        if (typeof syncPureSkinStage === "function") syncPureSkinStage(stAfterSwitch, { force: true });
         showToast(`已切换账号：${acc.username}`);
       }
       closeAccountPopoverSmoothly();
+      return;
+    }
+
+    const skinAccBtn = e.target.closest("[data-import-skin]");
+    if (skinAccBtn) {
+      e.stopPropagation();
+      const accId = skinAccBtn.getAttribute("data-import-skin");
+      if (!accId) return;
+      if (window.LauncherBridge.isWebView2) {
+        try {
+          const res = await window.LauncherBridge.invoke("import_offline_skin", { id: accId });
+          if (res && !res.cancelled) {
+            const st = window.LauncherBridge.getStateSync();
+            syncPlayerAccountUi(st);
+            syncPureSkinStage(st);
+            showToast(`已为 ${res.username} 导入离线皮肤`);
+          }
+        } catch (err) {
+          showToast(err?.message || "导入皮肤失败");
+        }
+      } else {
+        const picker = document.createElement("input");
+        picker.type = "file";
+        picker.accept = "image/png";
+        picker.addEventListener("change", () => {
+          const file = picker.files && picker.files[0];
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = () => {
+            const img = new Image();
+            img.onload = async () => {
+              const w = img.naturalWidth;
+              const h = img.naturalHeight;
+              if (w < 64 || (w !== h && w !== h * 2)) {
+                showToast(`皮肤尺寸 ${w}×${h} 不符合 Minecraft 皮肤规范`);
+                return;
+              }
+              const unit = Math.max(1, Math.floor(w / 64));
+              const canvas = document.createElement("canvas");
+              canvas.width = 64;
+              canvas.height = 64;
+              const ctx = canvas.getContext("2d");
+              if (ctx) {
+                ctx.imageSmoothingEnabled = false;
+                ctx.drawImage(img, 8 * unit, 8 * unit, 8 * unit, 8 * unit, 0, 0, 64, 64);
+                ctx.drawImage(img, 40 * unit, 8 * unit, 8 * unit, 8 * unit, 0, 0, 64, 64);
+              }
+              let skinModel = "default";
+              if (w === h) {
+                const probe = document.createElement("canvas");
+                probe.width = w;
+                probe.height = h;
+                const pctx = probe.getContext("2d");
+                if (pctx) {
+                  pctx.drawImage(img, 0, 0);
+                  const d1 = pctx.getImageData(Math.min(w - 1, Math.floor(54 * (w / 64))), Math.min(h - 1, Math.floor(24 * (h / 64))), 1, 1).data;
+                  const d2 = pctx.getImageData(Math.min(w - 1, Math.floor(55 * (w / 64))), Math.min(h - 1, Math.floor(24 * (h / 64))), 1, 1).data;
+                  if (d1[3] < 128 && d2[3] < 128) skinModel = "slim";
+                }
+              }
+              const res = await window.LauncherBridge.invoke("import_offline_skin", {
+                id: accId,
+                skinModel,
+                skinDataUrl: String(reader.result || ""),
+                avatarDataUrl: canvas.toDataURL("image/png")
+              });
+              if (res) {
+                syncPlayerAccountUi(window.LauncherBridge.getStateSync());
+                syncPureSkinStage(window.LauncherBridge.getStateSync());
+                showToast(`已为 ${res.username} 导入本地皮肤`);
+              }
+            };
+            img.src = String(reader.result || "");
+          };
+          reader.readAsDataURL(file);
+        });
+        picker.click();
+      }
       return;
     }
 
@@ -3178,7 +3302,7 @@
       if (!detail) return;
       const selected = detailState.selectedVersionBuilds || {};
       const selectedKeys = Object.keys(selected).filter((k) => Boolean(selected[k]));
-      const suffix = selectedKeys.length > 0 ? ` + ${selectedKeys.join(" + ")}` : " (原版)";
+      const suffix = selectedKeys.length > 0 ? ` + ${selectedKeys.join(" + ")}` : "";
       const taskName = `Minecraft ${detail.id}${suffix}`;
       let loaderKind = "";
       let loaderVersion = "";
@@ -3593,6 +3717,20 @@
       return;
     }
 
+    const modDisabledFilterBtn = e.target.closest("[data-toggle-mod-disabled-filter]");
+    if (modDisabledFilterBtn) {
+      modOnlyDisabled = !modOnlyDisabled;
+      modPage = 1;
+      if (modDisabledFilterBtn.closest("#quick-panel")) {
+        syncQuickPanelUi(window.LauncherBridge.getStateSync(), { quiet: true });
+      } else if (activeSubRoute && document.getElementById("hub-workspace-slot")) {
+        syncSubWorkspaceSlot(window.LauncherBridge.getStateSync(), { preserveAnimation: true });
+      } else {
+        render();
+      }
+      return;
+    }
+
     const modPageBtn = e.target.closest("[data-mod-page]");
     if (modPageBtn && !modPageBtn.disabled) {
       const nextModPage = Number(modPageBtn.getAttribute("data-mod-page")) || 1;
@@ -3621,8 +3759,9 @@
       }
       const removed = await window.LauncherBridge.invoke("delete_mod", { id: modId });
       if (removed) {
-        showToast(`已移除 Mod：${removed.cnName || removed.name}`);
         const st = window.LauncherBridge.getStateSync();
+        const modTitle = st.disableChineseResourceNames ? (removed.name || removed.cnName) : (removed.cnName || removed.name);
+        showToast(`已移除 Mod：${modTitle}`);
         syncInstanceUi(st, false, false);
         const modRow = delModBtn.closest("[data-mod-row]");
         if (modRow && !prefersReducedMotion()) {
@@ -3768,6 +3907,7 @@
     const galleryPickBtn = e.target.closest("[data-gallery-pick-inst]");
     if (galleryPickBtn) {
       const id = galleryPickBtn.getAttribute("data-gallery-pick-inst");
+      if (pendingLaunchIds.size > 0 && !pendingLaunchIds.has(id)) return;
       await window.LauncherBridge.invoke("set_active_instance", { id, promoteRecent: true });
       showToast("已切换当前版本");
       leaveFolderGallery(() => {
@@ -3784,6 +3924,7 @@
     const selectInstBtn = e.target.closest("[data-select-inst]");
     if (selectInstBtn) {
       const id = selectInstBtn.getAttribute("data-select-inst");
+      if (pendingLaunchIds.size > 0 && !pendingLaunchIds.has(id)) return;
       const prevId = window.LauncherBridge.getStateSync()?.activeInstanceId;
       if (id !== prevId) {
         modPage = 1;
@@ -3876,7 +4017,7 @@
       try {
         await window.LauncherBridge.invoke("add_download_task", task);
         syncFloatingDownloadBallUi(window.LauncherBridge.getStateSync());
-        showToast(`已开始下载原版 Minecraft ${mcVer}`);
+        showToast(`已开始下载 Minecraft ${mcVer}`);
         navigateTo("download-queue");
       } catch (error) {
         showToast(error.message || "无法开始下载");
@@ -4476,6 +4617,23 @@
       });
       showToast("已切换当前版本 Java 运行时");
       syncInstanceUi(window.LauncherBridge.getStateSync(), false);
+      return;
+    }
+
+    const featureKey = e.target && e.target.getAttribute ? e.target.getAttribute("data-feature-toggle") : null;
+    if (featureKey) {
+      const checked = Boolean(e.target.checked);
+      try {
+        await window.LauncherBridge.invoke("set_feature_flags", { [featureKey]: checked });
+        if (featureKey === "bypassSystemProxyOnDownload") {
+          showToast(checked ? "已开启：绕过代理" : "已关闭：绕过代理");
+        } else if (featureKey === "disableChineseResourceNames") {
+          showToast(checked ? "已开启：取消中文译名（下次进入资源列表生效）" : "已关闭：取消中文译名（下次进入资源列表生效）");
+        }
+      } catch (err) {
+        e.target.checked = !checked;
+        showToast(err?.message || "保存功能设置失败");
+      }
     }
 
   });
@@ -4613,7 +4771,7 @@
       const val = e.target.value;
       await window.LauncherBridge.invoke("set_jvm_args", { jvmArgs: val });
       document.querySelectorAll("[data-jvm-preset]").forEach((b) => {
-        b.classList.toggle("is-active", (b.getAttribute("data-jvm-preset") || "") === val.trim());
+        b.classList.toggle("is-active", matchesJvmPreset(b.getAttribute("data-jvm-preset") || "", val));
       });
     }
 
@@ -4626,11 +4784,7 @@
         jvmArgs: val
       });
       document.querySelectorAll("[data-quick-jvm-preset]").forEach((b) => {
-        const p = b.getAttribute("data-quick-jvm-preset") || "";
-        const match = (p.includes("UseZGC") && val.includes("UseZGC"))
-          || (p.includes("UseG1GC") && val.includes("UseG1GC"))
-          || (p.includes("UseShenandoahGC") && val.includes("UseShenandoahGC"));
-        b.classList.toggle("is-active", match);
+        b.classList.toggle("is-active", matchesJvmPreset(b.getAttribute("data-quick-jvm-preset") || "", val));
       });
     }
   });
@@ -4678,19 +4832,54 @@
       window.LauncherBridge.invoke("window_close", {});
     });
   }
-  const topbarEl = document.querySelector(".topbar");
-  if (topbarEl) {
-    topbarEl.addEventListener("mousedown", (e) => {
+  function bindWindowDragBar(barEl) {
+    if (!barEl) return;
+    const interactiveSel = "button, a, input, select, textarea, .nav-btn, .win-ctrl-btn, .palette-theme-btn, .menu-btn, .emu-btn";
+    let pendingMaxDrag = null;
+    const clearPending = () => {
+      if (!pendingMaxDrag) return;
+      window.removeEventListener("mousemove", pendingMaxDrag.onMove);
+      window.removeEventListener("mouseup", pendingMaxDrag.onUp);
+      pendingMaxDrag = null;
+    };
+    barEl.addEventListener("mousedown", (e) => {
       if (e.button !== 0 || !window.LauncherBridge || !window.LauncherBridge.isWebView2) return;
-      if (e.target.closest("button, a, input, select, textarea, .nav-btn, .win-ctrl-btn, .palette-theme-btn, .menu-btn")) return;
-      window.LauncherBridge.invoke("window_start_drag", {});
+      if (e.target.closest(interactiveSel)) return;
+      const isMax = document.documentElement.dataset.windowMaximized === "true"
+        || (btnWinMax && btnWinMax.dataset.maximized === "true");
+      if (!isMax) {
+        window.LauncherBridge.invoke("window_start_drag", {});
+        return;
+      }
+      // Chrome-style: when maximized, wait for >= 5px drag before restoring & dragging so dblclick still toggles maximize
+      clearPending();
+      const startX = e.screenX;
+      const startY = e.screenY;
+      const onMove = (mv) => {
+        if ((mv.buttons & 1) === 0) {
+          clearPending();
+          return;
+        }
+        if (Math.hypot(mv.screenX - startX, mv.screenY - startY) >= 5) {
+          clearPending();
+          window.LauncherBridge.invoke("window_start_drag", {});
+        }
+      };
+      const onUp = () => clearPending();
+      pendingMaxDrag = { onMove, onUp };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
     });
-    topbarEl.addEventListener("dblclick", (e) => {
+    barEl.addEventListener("dblclick", (e) => {
+      clearPending();
       if (!window.LauncherBridge || !window.LauncherBridge.isWebView2) return;
-      if (e.target.closest("button, a, input, select, textarea, .nav-btn, .win-ctrl-btn, .palette-theme-btn, .menu-btn")) return;
+      if (e.target.closest(interactiveSel)) return;
       window.LauncherBridge.invoke("window_toggle_maximize", {});
     });
   }
+  bindWindowDragBar(document.querySelector(".topbar"));
+  bindWindowDragBar(document.querySelector(".drawer-top"));
+  bindWindowDragBar(document.getElementById("pure-home-drag-strip"));
 
   if (btnNavBack) btnNavBack.addEventListener("click", goBack);
   if (btnNavHome) btnNavHome.addEventListener("click", goHome);
@@ -4702,6 +4891,107 @@
 
   document.getElementById("btn-open-drawer").addEventListener("click", openDrawer);
   document.getElementById("btn-close-drawer").addEventListener("click", closeDrawer);
+
+  /* ---------- DCL Logo Easter-Egg Star Popover + Duck Quack SFX ---------- */
+  const DCL_GITHUB_URL = "https://github.com/duckcrispp/DummyCrisp-Minecraft-Launcher";
+  const DCL_QUACK_SRC = "assets/sounds/duck-quack.mp3";
+  const dclStarPopover = document.getElementById("dcl-star-popover");
+  let dclAudioCtx = null;
+  let dclQuackBuffer = null;
+  let dclQuackLoading = null;
+
+  function loadDuckQuackBuffer(ctx) {
+    if (dclQuackBuffer) return Promise.resolve(dclQuackBuffer);
+    if (dclQuackLoading) return dclQuackLoading;
+    dclQuackLoading = fetch(DCL_QUACK_SRC)
+      .then((res) => (res.ok ? res.arrayBuffer() : Promise.reject(new Error("Audio fetch failed"))))
+      .then((buf) => ctx.decodeAudioData(buf))
+      .then((decoded) => {
+        dclQuackBuffer = decoded;
+        return decoded;
+      })
+      .catch(() => null)
+      .finally(() => {
+        dclQuackLoading = null;
+      });
+    return dclQuackLoading;
+  }
+
+  function playDuckQuack() {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx) {
+        if (!dclAudioCtx) dclAudioCtx = new AudioCtx();
+        if (dclAudioCtx.state === "suspended") dclAudioCtx.resume().catch(() => {});
+        loadDuckQuackBuffer(dclAudioCtx).then((buffer) => {
+          if (buffer && dclAudioCtx) {
+            const src = dclAudioCtx.createBufferSource();
+            src.buffer = buffer;
+            src.connect(dclAudioCtx.destination);
+            src.start(0);
+          } else {
+            const audio = new Audio(DCL_QUACK_SRC);
+            audio.play().catch(() => {});
+          }
+        });
+        return;
+      }
+      const audio = new Audio(DCL_QUACK_SRC);
+      audio.play().catch(() => {});
+    } catch {}
+  }
+
+  function closeDclStarPopover() {
+    if (!dclStarPopover) return;
+    dclStarPopover.classList.remove("is-open", "is-shaking");
+    dclStarPopover.setAttribute("aria-hidden", "true");
+  }
+
+  function openDclStarPopover(anchorEl) {
+    if (!dclStarPopover || !anchorEl) return;
+    const rect = anchorEl.getBoundingClientRect();
+    const left = Math.max(12, Math.min(rect.left - 4, window.innerWidth - 340));
+    const top = Math.min(rect.bottom + 12, window.innerHeight - 68);
+    dclStarPopover.style.left = `${Math.round(left)}px`;
+    dclStarPopover.style.top = `${Math.round(top)}px`;
+    dclStarPopover.classList.add("is-open");
+    dclStarPopover.setAttribute("aria-hidden", "false");
+    dclStarPopover.classList.remove("is-shaking");
+    void dclStarPopover.offsetWidth;
+    if (!prefersReducedMotion()) {
+      dclStarPopover.classList.add("is-shaking");
+    }
+    playDuckQuack();
+  }
+
+  document.querySelectorAll("[data-dcl-easter-egg]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openDclStarPopover(btn);
+    });
+  });
+
+  document.getElementById("btn-dcl-github-star")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    closeDclStarPopover();
+    if (window.LauncherBridge && window.LauncherBridge.isWebView2) {
+      window.LauncherBridge.invoke("open_external_url", { url: DCL_GITHUB_URL }).catch(() => {});
+    } else {
+      window.open(DCL_GITHUB_URL, "_blank", "noopener,noreferrer");
+    }
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!dclStarPopover || !dclStarPopover.classList.contains("is-open")) return;
+    if (e.target.closest("#dcl-star-popover") || e.target.closest("[data-dcl-easter-egg]")) return;
+    closeDclStarPopover();
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && dclStarPopover && dclStarPopover.classList.contains("is-open")) {
+      closeDclStarPopover();
+    }
+  });
 
   const btnCycleTheme = document.getElementById("btn-cycle-theme");
   if (btnCycleTheme) {
@@ -4748,13 +5038,17 @@
     }
   });
 
-  /* ---------- Splash Curtain Auto Dismiss ---------- */
+  /* ---------- Splash Curtain Dismiss (Synced to First Real Render) ---------- */
   const splash = document.getElementById("splash-curtain");
+  let splashDismissed = false;
   function dismissSplash() {
-    splash.classList.add("is-done");
+    if (splashDismissed) return;
+    splashDismissed = true;
+    if (splash) splash.classList.add("is-done");
   }
-  splash.addEventListener("click", dismissSplash);
-  setTimeout(dismissSplash, 720);
+  if (splash) {
+    splash.addEventListener("click", dismissSplash);
+  }
 
   if (typeof window.LauncherBridge.onHostEvent === "function") {
     window.LauncherBridge.onHostEvent((evt, data) => {
@@ -4773,7 +5067,7 @@
               fill.style.width = `${t.progress}%`;
               fill.classList.toggle("is-done", t.status === "completed");
             }
-            if (pct) pct.textContent = `${t.progress}%`;
+            if (pct) pct.textContent = t.status === "completed" || t.progress >= 100 ? "已完成" : `${t.progress}%`;
             fill?.parentElement?.setAttribute("aria-valuenow", String(t.progress));
             if (srcEl) {
               srcEl.textContent = `${t.size} · ${t.source}`;
@@ -4807,6 +5101,13 @@
         }).catch(() => {});
       } else if (evt === "workspace_refreshed") {
         if (currentRoute === "home" || currentRoute === "instance-gallery") render({ preserveSubLayout: true });
+      } else if (evt === "active_resources_ready") {
+        const st = window.LauncherBridge.getStateSync();
+        if (currentRoute === "home" && activeQuickPanel === "mods") {
+          syncQuickPanelUi(st, { quiet: true });
+        } else if (activeSubRoute === "manage-mods" || activeHubKey === "diagnostics") {
+          syncSubWorkspaceSlot(st, { preserveAnimation: true });
+        }
       } else if (evt === "launch_progress" && data) {
         const nextPct = Number(data.progress) || 0;
         const st = window.LauncherBridge.getStateSync();
@@ -4825,18 +5126,36 @@
           }, 1200);
         }
       } else if (evt === "game_process_started" && data) {
-        if (data.instanceId) pendingLaunchIds.delete(data.instanceId);
+        if (data.instanceId) {
+          pendingLaunchIds.delete(data.instanceId);
+          runningGameIds.add(data.instanceId);
+        }
+        if (typeof stopPureEmotes === "function") stopPureEmotes();
         syncLaunchButtonUi(window.LauncherBridge.getStateSync());
+      } else if (evt === "game_process_exited" && data) {
+        if (data.instanceId) {
+          pendingLaunchIds.delete(data.instanceId);
+          runningGameIds.delete(data.instanceId);
+        }
+        if (typeof scheduleNextPureEmote === "function" && pureHomeActive) scheduleNextPureEmote();
       } else if (evt === "launch_cancelled" && data) {
-        if (data.instanceId) pendingLaunchIds.delete(data.instanceId);
+        if (data.instanceId) {
+          pendingLaunchIds.delete(data.instanceId);
+          runningGameIds.delete(data.instanceId);
+        }
         launchProgress = 0;
         if (currentRoute === "home") syncLaunchMeterUi();
         syncLaunchButtonUi(window.LauncherBridge.getStateSync());
+        if (typeof scheduleNextPureEmote === "function" && pureHomeActive) scheduleNextPureEmote();
       } else if (evt === "crash_detected" && data) {
-        if (data.instanceId) pendingLaunchIds.delete(data.instanceId);
+        if (data.instanceId) {
+          pendingLaunchIds.delete(data.instanceId);
+          runningGameIds.delete(data.instanceId);
+        }
         launchProgress = 0;
         if (currentRoute === "home") syncLaunchMeterUi();
         syncLaunchButtonUi(window.LauncherBridge.getStateSync());
+        if (typeof scheduleNextPureEmote === "function" && pureHomeActive) scheduleNextPureEmote();
         showToast(data.message || "游戏异常退出，请在【运行诊断】查看报错分析");
       } else if (evt === "toast" && data) {
         showToast(String(data));
@@ -5363,9 +5682,512 @@
     window.addEventListener("resize", () => { if (cpOpen) closePicker(); });
   }
 
+  /* ---------- Pure Home Mode (纯净主页) & 3D Minecraft Skin Viewer ---------- */
+  const runningGameIds = new Set();
+  const BEDROCK_EMOTES = [
+    { id: "wave", durationMs: 1850 },
+    { id: "clap", durationMs: 1950 },
+    { id: "cheer", durationMs: 1800 },
+    { id: "lookaround", durationMs: 2400 },
+    { id: "followme", durationMs: 1900 },
+    { id: "spin", durationMs: 1650 }
+  ];
+  let pureHomeActive = false;
+  let purePullUp = 0;
+  let purePullDown = 0;
+  let pureDecayTimer = null;
+  let pureCooldownUntil = 0;
+  let pureExitSnapUntil = 0;
+  let pureSkinRotX = -8;
+  let pureSkinRotY = -24;
+  let pureSkinDragging = false;
+  let pureSkinLastKey = "";
+  let pureSkinLoadSeq = 0;
+  let pureEmoteTimer = null;
+  let pureEmoteClearTimer = null;
+  let pureLastEmoteId = "";
+  let cachedDefaultSteveCanvas = null;
+
+  function createDefaultSteveCanvas() {
+    if (cachedDefaultSteveCanvas) return cachedDefaultSteveCanvas;
+    const c = document.createElement("canvas");
+    c.width = 64;
+    c.height = 64;
+    const g = c.getContext("2d");
+    if (!g) return c;
+    const fill = (x, y, w, h, color) => { g.fillStyle = color; g.fillRect(x, y, w, h); };
+    // Head base (skin tone + classic brown hair + eyes + beard/smile)
+    fill(0, 0, 32, 16, "#b98e6a");
+    fill(8, 0, 8, 8, "#3b2416");   // top hair
+    fill(0, 8, 8, 3, "#3b2416");   // right side hair
+    fill(16, 8, 8, 3, "#3b2416");  // left side hair
+    fill(24, 8, 8, 8, "#3b2416");  // back hair
+    fill(8, 8, 8, 2, "#3b2416");   // forehead hair
+    fill(8, 10, 1, 1, "#3b2416");
+    fill(15, 10, 1, 1, "#3b2416");
+    fill(9, 12, 1, 1, "#ffffff");  // left eye sclera
+    fill(10, 12, 1, 1, "#49378c"); // left iris
+    fill(13, 12, 1, 1, "#49378c"); // right iris
+    fill(14, 12, 1, 1, "#ffffff"); // right eye sclera
+    fill(11, 13, 2, 1, "#9b6d4c"); // nose
+    fill(10, 14, 4, 2, "#6b4226"); // goatee
+    fill(11, 14, 2, 1, "#a77754");
+    // Body (cyan shirt)
+    fill(16, 16, 24, 16, "#1f9da8");
+    fill(20, 20, 8, 12, "#24b0bc");
+    fill(22, 20, 4, 2, "#b98e6a"); // collar V
+    // Right Arm & Left Arm (cyan short sleeve + skin)
+    fill(40, 16, 16, 16, "#b98e6a");
+    fill(40, 16, 16, 8, "#1f9da8");
+    fill(32, 48, 16, 16, "#b98e6a");
+    fill(32, 48, 16, 8, "#1f9da8");
+    // Right Leg & Left Leg (indigo jeans + grey boots)
+    fill(0, 16, 16, 16, "#323a82");
+    fill(0, 28, 16, 4, "#5d5d63");
+    fill(16, 48, 16, 16, "#323a82");
+    fill(16, 60, 16, 4, "#5d5d63");
+    cachedDefaultSteveCanvas = c;
+    return c;
+  }
+
+  function extractSkinFaceUrl(srcCanvas, x, y, w, h, flipX, skipIfEmpty) {
+    const sw = srcCanvas.width;
+    const sh = srcCanvas.height;
+    const ux = sw / 64;
+    const uy = sh === sw ? sh / 64 : sh / 32;
+    const sx = Math.round(x * ux);
+    const sy = Math.round(y * uy);
+    const fw = Math.max(1, Math.round(w * ux));
+    const fh = Math.max(1, Math.round(h * uy));
+    if (sy + fh > sh || sx + fw > sw) return null;
+
+    const c = document.createElement("canvas");
+    c.width = fw;
+    c.height = fh;
+    const ctx = c.getContext("2d");
+    if (!ctx) return null;
+    ctx.imageSmoothingEnabled = false;
+    if (flipX) {
+      ctx.translate(fw, 0);
+      ctx.scale(-1, 1);
+    }
+    ctx.drawImage(srcCanvas, sx, sy, fw, fh, 0, 0, fw, fh);
+    if (skipIfEmpty) {
+      const pixels = ctx.getImageData(0, 0, fw, fh).data;
+      let anyVisible = false;
+      for (let i = 3; i < pixels.length; i += 4) {
+        if (pixels[i] > 10) { anyVisible = true; break; }
+      }
+      if (!anyVisible) return null;
+    }
+    return c.toDataURL("image/png");
+  }
+
+  function createSkinBoxEl(srcCanvas, uv, dimsPx, opts) {
+    const { u, v, uw, uh, ud } = uv;
+    const { w, h, d } = dimsPx;
+    const { mirrorLegacy = false, overlay = false } = opts || {};
+    const box = document.createElement("div");
+    box.className = "mc-box";
+    const faces = [
+      { key: "front", fw: w, fh: h, tx: `translateZ(${d / 2}px)`, ux: u + ud, uy: v + ud, w: uw, h: uh, flip: mirrorLegacy },
+      { key: "back", fw: w, fh: h, tx: `rotateY(180deg) translateZ(${d / 2}px)`, ux: u + ud + uw + ud, uy: v + ud, w: uw, h: uh, flip: mirrorLegacy },
+      { key: "right", fw: d, fh: h, tx: `rotateY(90deg) translateZ(${w / 2}px)`, ux: mirrorLegacy ? u : u + ud + uw, uy: v + ud, w: ud, h: uh, flip: mirrorLegacy },
+      { key: "left", fw: d, fh: h, tx: `rotateY(-90deg) translateZ(${w / 2}px)`, ux: mirrorLegacy ? u + ud + uw : u, uy: v + ud, w: ud, h: uh, flip: mirrorLegacy },
+      { key: "top", fw: w, fh: d, tx: `rotateX(90deg) translateZ(${h / 2}px)`, ux: u + ud, uy: v, w: uw, h: ud, flip: mirrorLegacy },
+      { key: "bottom", fw: w, fh: d, tx: `rotateX(-90deg) translateZ(${h / 2}px)`, ux: u + ud + uw, uy: v, w: uw, h: ud, flip: mirrorLegacy }
+    ];
+    let added = 0;
+    faces.forEach((f) => {
+      const url = extractSkinFaceUrl(srcCanvas, f.ux, f.uy, f.w, f.h, f.flip, overlay);
+      if (!url) return;
+      const el = document.createElement("div");
+      el.className = `mc-face mc-face--${f.key}`;
+      el.style.width = `${f.fw}px`;
+      el.style.height = `${f.fh}px`;
+      el.style.marginLeft = `${-f.fw / 2}px`;
+      el.style.marginTop = `${-f.fh / 2}px`;
+      el.style.transform = f.tx;
+      el.style.backgroundImage = `url("${url}")`;
+      box.appendChild(el);
+      added++;
+    });
+    return added > 0 ? box : null;
+  }
+
+  function renderMcSkinRigFromCanvas(rigEl, srcCanvas, skinModel) {
+    if (!rigEl || !srcCanvas) return;
+    const S = 7; // 1 Minecraft pixel = 7 CSS px (32px tall -> 224px)
+    const isModern = srcCanvas.width === srcCanvas.height;
+    const isSlim = isModern && skinModel === "slim";
+    const armW = isSlim ? 3 : 4;
+    const armHalfOffset = 28 + (armW * S) / 2;
+
+    rigEl.replaceChildren();
+    rigEl.setAttribute("data-skin-model", isSlim ? "slim" : "default");
+    rigEl.style.setProperty("--arm-rx", `${-armHalfOffset}px`);
+    rigEl.style.setProperty("--arm-lx", `${armHalfOffset}px`);
+
+    const motionWrap = document.createElement("div");
+    motionWrap.className = "mc-rig-body-motion";
+    rigEl.appendChild(motionWrap);
+
+    const makeJointPart = (cls, innerOffsetTransform, baseUv, baseDims, overUv, overDims, mirrorLegacy) => {
+      const joint = document.createElement("div");
+      joint.className = `mc-part ${cls}`;
+      const inner = document.createElement("div");
+      inner.className = "mc-part";
+      if (innerOffsetTransform) inner.style.transform = innerOffsetTransform;
+      const baseBox = createSkinBoxEl(srcCanvas, baseUv, baseDims, { mirrorLegacy, overlay: false });
+      if (baseBox) inner.appendChild(baseBox);
+      if (overUv && (isModern || cls === "mc-part--head")) {
+        const overBox = createSkinBoxEl(srcCanvas, overUv, overDims, { mirrorLegacy: false, overlay: true });
+        if (overBox) inner.appendChild(overBox);
+      }
+      joint.appendChild(inner);
+      motionWrap.appendChild(joint);
+    };
+
+    // Head (neck pivot at y=56 -> box center offset -28 upward)
+    makeJointPart(
+      "mc-part--head",
+      "translate3d(0, -28px, 0)",
+      { u: 0, v: 0, uw: 8, uh: 8, ud: 8 },
+      { w: 8 * S, h: 8 * S, d: 8 * S },
+      { u: 32, v: 0, uw: 8, uh: 8, ud: 8 },
+      { w: 8 * S + 5, h: 8 * S + 5, d: 8 * S + 5 },
+      false
+    );
+
+    // Body (center at y=98)
+    makeJointPart(
+      "mc-part--body",
+      "translate3d(0, 98px, 0)",
+      { u: 16, v: 16, uw: 8, uh: 12, ud: 4 },
+      { w: 8 * S, h: 12 * S, d: 4 * S },
+      { u: 16, v: 32, uw: 8, uh: 12, ud: 4 },
+      { w: 8 * S + 4, h: 12 * S + 4, d: 4 * S + 4 },
+      false
+    );
+
+    // Right Arm (shoulder pivot at y=56 -> box offset +42 downward)
+    makeJointPart(
+      "mc-part--rarm",
+      "translate3d(0, 42px, 0)",
+      { u: 40, v: 16, uw: armW, uh: 12, ud: 4 },
+      { w: armW * S, h: 12 * S, d: 4 * S },
+      { u: 40, v: 32, uw: armW, uh: 12, ud: 4 },
+      { w: armW * S + 3.5, h: 12 * S + 3.5, d: 4 * S + 3.5 },
+      false
+    );
+
+    // Left Arm (shoulder pivot at y=56 -> box offset +42 downward)
+    makeJointPart(
+      "mc-part--larm",
+      "translate3d(0, 42px, 0)",
+      isModern ? { u: 32, v: 48, uw: armW, uh: 12, ud: 4 } : { u: 40, v: 16, uw: armW, uh: 12, ud: 4 },
+      { w: armW * S, h: 12 * S, d: 4 * S },
+      { u: 48, v: 48, uw: armW, uh: 12, ud: 4 },
+      { w: armW * S + 3.5, h: 12 * S + 3.5, d: 4 * S + 3.5 },
+      !isModern
+    );
+
+    // Right Leg (hip pivot at y=140 -> box offset +42 downward)
+    makeJointPart(
+      "mc-part--rleg",
+      "translate3d(0, 42px, 0)",
+      { u: 0, v: 16, uw: 4, uh: 12, ud: 4 },
+      { w: 4 * S, h: 12 * S, d: 4 * S },
+      { u: 0, v: 32, uw: 4, uh: 12, ud: 4 },
+      { w: 4 * S + 3.5, h: 12 * S + 3.5, d: 4 * S + 3.5 },
+      false
+    );
+
+    // Left Leg (hip pivot at y=140 -> box offset +42 downward)
+    makeJointPart(
+      "mc-part--lleg",
+      "translate3d(0, 42px, 0)",
+      isModern ? { u: 16, v: 48, uw: 4, uh: 12, ud: 4 } : { u: 0, v: 16, uw: 4, uh: 12, ud: 4 },
+      { w: 4 * S, h: 12 * S, d: 4 * S },
+      { u: 0, v: 48, uw: 4, uh: 12, ud: 4 },
+      { w: 4 * S + 3.5, h: 12 * S + 3.5, d: 4 * S + 3.5 },
+      !isModern
+    );
+
+    rigEl.style.transform = `translateY(-6px) rotateX(${pureSkinRotX}deg) rotateY(${pureSkinRotY}deg)`;
+  }
+
+  function syncPureSkinStage(state, opts) {
+    const rigEl = document.getElementById("mc-skin-rig");
+    const uidEl = document.getElementById("pure-skin-uid");
+    const force = Boolean(opts && opts.force);
+    const acc = (state && state.account) || {};
+    if (uidEl) uidEl.textContent = (acc.loggedIn && acc.username) ? acc.username : "Steve";
+    if (!rigEl) return;
+
+    const skinUrl = acc.skinUrl || "";
+    const skinModel = acc.skinModel || "default";
+    const renderKey = `${acc.id || ""}|${skinUrl}|${skinModel}|${acc.avatar || ""}`;
+    if (!force && pureSkinLastKey === renderKey && rigEl.childElementCount > 0) return;
+    pureSkinLastKey = renderKey;
+    const reqSeq = ++pureSkinLoadSeq;
+
+    if (!skinUrl) {
+      renderMcSkinRigFromCanvas(rigEl, createDefaultSteveCanvas(), "default");
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      if (reqSeq !== pureSkinLoadSeq) return;
+      const latestRig = document.getElementById("mc-skin-rig");
+      if (!latestRig) return;
+      const c = document.createElement("canvas");
+      c.width = img.naturalWidth || 64;
+      c.height = img.naturalHeight || 64;
+      const ctx = c.getContext("2d");
+      if (ctx) {
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(img, 0, 0);
+        renderMcSkinRigFromCanvas(latestRig, c, skinModel);
+      }
+    };
+    img.onerror = () => {
+      if (reqSeq !== pureSkinLoadSeq) return;
+      const latestRig = document.getElementById("mc-skin-rig");
+      if (latestRig) renderMcSkinRigFromCanvas(latestRig, createDefaultSteveCanvas(), "default");
+    };
+    img.src = skinUrl;
+  }
+
+  function setPureHomeCue(visible, isExit) {
+    const cue = document.getElementById("pure-home-cue");
+    if (!cue) return;
+    if (typeof isExit === "boolean") {
+      cue.classList.toggle("is-exit-cue", isExit);
+    }
+    cue.classList.toggle("is-visible", Boolean(visible));
+    cue.setAttribute("aria-hidden", String(!visible));
+  }
+
+  function resetHomeScrollToTop() {
+    stopDampedScroll();
+    isWritingScroll = true;
+    scrollCurrentY = 0;
+    scrollTargetY = 0;
+    window.scrollTo(0, 0);
+    isWritingScroll = false;
+  }
+
+  function isAnyGameLaunchingOrRunning() {
+    return pendingLaunchIds.size > 0 || runningGameIds.size > 0 || (launchProgress > 0 && launchProgress < 100);
+  }
+
+  function clearPureEmoteClasses(rigEl) {
+    const el = rigEl || document.getElementById("mc-skin-rig");
+    if (!el) return;
+    BEDROCK_EMOTES.forEach((em) => el.classList.remove(`is-emote-${em.id}`));
+  }
+
+  function stopPureEmotes() {
+    clearTimeout(pureEmoteTimer);
+    clearTimeout(pureEmoteClearTimer);
+    pureEmoteTimer = null;
+    pureEmoteClearTimer = null;
+    clearPureEmoteClasses();
+  }
+
+  function playPureEmote(emoteId, onDone) {
+    if (!pureHomeActive || prefersReducedMotion()) return;
+    const rigEl = document.getElementById("mc-skin-rig");
+    if (!rigEl) return;
+    const meta = BEDROCK_EMOTES.find((e) => e.id === emoteId) || BEDROCK_EMOTES[0];
+    clearTimeout(pureEmoteClearTimer);
+    clearPureEmoteClasses(rigEl);
+    void rigEl.offsetWidth; // force reflow so repeated wave restarts crisply
+    rigEl.classList.add(`is-emote-${meta.id}`);
+    pureLastEmoteId = meta.id;
+    pureEmoteClearTimer = setTimeout(() => {
+      clearPureEmoteClasses();
+      if (typeof onDone === "function") onDone();
+    }, meta.durationMs + 40);
+  }
+
+  function scheduleNextPureEmote() {
+    clearTimeout(pureEmoteTimer);
+    pureEmoteTimer = null;
+    if (!pureHomeActive || prefersReducedMotion()) return;
+    const delayMs = Math.round(10000 + Math.random() * 50000); // 10s – 60s random interval
+    pureEmoteTimer = setTimeout(() => {
+      if (!pureHomeActive) return;
+      if (isAnyGameLaunchingOrRunning() || pureSkinDragging) {
+        scheduleNextPureEmote();
+        return;
+      }
+      const pool = BEDROCK_EMOTES.filter((e) => e.id !== pureLastEmoteId);
+      const next = pool[Math.floor(Math.random() * pool.length)] || BEDROCK_EMOTES[0];
+      playPureEmote(next.id, () => {
+        if (pureHomeActive) scheduleNextPureEmote();
+      });
+    }, delayMs);
+  }
+
+  function setPureHomeMode(active) {
+    const next = Boolean(active);
+    if (pureHomeActive === next) return;
+    pureHomeActive = next;
+    purePullUp = 0;
+    purePullDown = 0;
+    setPureHomeCue(false);
+    document.body.classList.toggle("is-pure-home", next);
+    const stage = document.getElementById("pure-skin-stage");
+    if (stage) stage.setAttribute("aria-hidden", String(!next));
+    if (next) {
+      closeAccountPopoverSmoothly();
+      if (activeQuickPanel) {
+        activeQuickPanel = null;
+        const slot = document.getElementById("quick-panel-slot");
+        if (slot) slot.innerHTML = "";
+        document.querySelectorAll("[data-quick-panel]").forEach((b) => b.classList.remove("is-active"));
+      }
+      resetHomeScrollToTop();
+      syncPureSkinStage(window.LauncherBridge.getStateSync(), { force: true });
+      stopPureEmotes();
+      // Greet with Bedrock-style wave once on every Pure Home entry, then run 10s–60s random emotes when idle
+      pureEmoteTimer = setTimeout(() => {
+        if (!pureHomeActive) return;
+        playPureEmote("wave", () => {
+          if (pureHomeActive) scheduleNextPureEmote();
+        });
+      }, 320);
+    } else {
+      stopPureEmotes();
+      pureExitSnapUntil = Date.now() + 560;
+      resetHomeScrollToTop();
+      requestAnimationFrame(() => resetHomeScrollToTop());
+    }
+  }
+
+  function initPureHomeMode() {
+    const BUFFER_UP = 110;
+    const TRIGGER_UP = 260;
+    const BUFFER_DOWN = 90;
+    const TRIGGER_DOWN = 230;
+
+    const resetDecay = () => {
+      clearTimeout(pureDecayTimer);
+      pureDecayTimer = setTimeout(() => {
+        purePullUp = 0;
+        purePullDown = 0;
+        setPureHomeCue(false);
+      }, 1300);
+    };
+
+    const isEligibleHome = () => {
+      if (currentRoute !== "home" || activeHubKey) return false;
+      if (document.querySelector(".drawer-overlay.is-open, .portal-backdrop.is-open, dialog[open], #account-popover.is-open")) return false;
+      return true;
+    };
+
+    window.addEventListener("wheel", (e) => {
+      if (!isEligibleHome()) return;
+      if (Date.now() < pureExitSnapUntil) {
+        e.preventDefault();
+        resetHomeScrollToTop();
+        return;
+      }
+      if (Date.now() < pureCooldownUntil) {
+        if (pureHomeActive) e.preventDefault();
+        return;
+      }
+
+      // Ignore wheel gestures inside scrollable sub-containers when not in Pure Home
+      if (!pureHomeActive && e.target && e.target.closest) {
+        const innerScroll = e.target.closest(".quick-panel-card, .account-popover, .dcl-color-picker");
+        if (innerScroll && innerScroll.scrollHeight > innerScroll.clientHeight + 2) return;
+      }
+
+      if (!pureHomeActive) {
+        if (window.scrollY > 2) {
+          if (purePullUp > 0) {
+            purePullUp = 0;
+            setPureHomeCue(false);
+          }
+          return;
+        }
+        if (e.deltaY < 0) {
+          purePullUp += Math.min(Math.abs(e.deltaY), 110);
+          resetDecay();
+          if (purePullUp >= TRIGGER_UP) {
+            pureCooldownUntil = Date.now() + 480;
+            setPureHomeMode(true);
+          } else if (purePullUp >= BUFFER_UP) {
+            setPureHomeCue(true, false);
+          }
+        } else if (e.deltaY > 0 && purePullUp > 0) {
+          purePullUp = 0;
+          setPureHomeCue(false);
+        }
+      } else {
+        e.preventDefault();
+        if (e.deltaY > 0) {
+          purePullDown += Math.min(Math.abs(e.deltaY), 110);
+          resetDecay();
+          if (purePullDown >= TRIGGER_DOWN) {
+            pureCooldownUntil = Date.now() + 480;
+            setPureHomeMode(false);
+          } else if (purePullDown >= BUFFER_DOWN) {
+            setPureHomeCue(true, true);
+          }
+        } else if (e.deltaY < 0 && purePullDown > 0) {
+          purePullDown = 0;
+          setPureHomeCue(false);
+        }
+      }
+    }, { passive: false });
+
+    // Interactive pointer drag to rotate the 3D skin showcase
+    let dragStartX = 0;
+    let dragStartY = 0;
+    let baseRotX = pureSkinRotX;
+    let baseRotY = pureSkinRotY;
+    document.addEventListener("pointerdown", (e) => {
+      const vp = e.target.closest && e.target.closest("#pure-skin-viewport");
+      if (!vp || !pureHomeActive) return;
+      pureSkinDragging = true;
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+      baseRotX = pureSkinRotX;
+      baseRotY = pureSkinRotY;
+      vp.classList.add("is-dragging");
+      try { vp.setPointerCapture(e.pointerId); } catch {}
+    });
+    document.addEventListener("pointermove", (e) => {
+      if (!pureSkinDragging) return;
+      pureSkinRotY = baseRotY + (e.clientX - dragStartX) * 0.65;
+      pureSkinRotX = Math.max(-35, Math.min(35, baseRotX - (e.clientY - dragStartY) * 0.4));
+      const rigEl = document.getElementById("mc-skin-rig");
+      if (rigEl) rigEl.style.transform = `translateY(-6px) rotateX(${pureSkinRotX}deg) rotateY(${pureSkinRotY}deg)`;
+    });
+    const endSkinDrag = () => {
+      if (!pureSkinDragging) return;
+      pureSkinDragging = false;
+      const vp = document.getElementById("pure-skin-viewport");
+      if (vp) vp.classList.remove("is-dragging");
+    };
+    document.addEventListener("pointerup", endSkinDrag);
+    document.addEventListener("pointercancel", endSkinDrag);
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && pureHomeActive) {
+        setPureHomeMode(false);
+      }
+    });
+  }
+
   initGlobalTooltips();
   initModMarquee();
   initDclColorPicker();
+  initPureHomeMode();
 
   document.addEventListener("click", (e) => {
     if (e.target.closest("#btn-cycle-bg-pattern")) {
@@ -5397,5 +6219,9 @@
     syncPinButtonUi(Boolean(st.alwaysOnTop));
     applyBgPattern(st.bgPatternId || "none", { persist: false, animateBtn: false });
     render();
+    requestAnimationFrame(() => {
+      document.documentElement.classList.add("dcl-boot-ready");
+      setTimeout(dismissSplash, 240);
+    });
   });
 })();

@@ -9,8 +9,8 @@ public sealed class DclConfig
     public bool AutoMirror { get; set; } = true;
     public bool AutoMemory { get; set; } = true;
     public int MemoryMb { get; set; } = 4096;
-    public string JvmPreset { get; set; } = "Gen-ZGC (Java 21)";
-    public string CustomJvmArgs { get; set; } = "-XX:+UseZGC -XX:+ZGenerational -Dfile.encoding=UTF-8";
+    public string JvmPreset { get; set; } = "Gen-ZGC (Java 21+)";
+    public string CustomJvmArgs { get; set; } = "-XX:+UseZGC -XX:+ZGenerational -XX:+DisableExplicitGC -Dfile.encoding=UTF-8";
     public string ThemeId { get; set; } = "obsidian-yellow";
     public string BgPatternId { get; set; } = "none";
     public bool AlwaysOnTop { get; set; } = false;
@@ -18,6 +18,8 @@ public sealed class DclConfig
     public string MicrosoftClientId { get; set; } = "";
     public string CurseForgeApiKey { get; set; } = "";
     public string CurseForgeApiRoute { get; set; } = "auto";
+    public bool BypassSystemProxyOnDownload { get; set; } = false;
+    public bool DisableChineseResourceNames { get; set; } = false;
 }
 
 public sealed class InstanceMeta
@@ -60,6 +62,8 @@ public sealed class AccountEntry
     public string? AccessToken { get; set; }
     public string? RefreshToken { get; set; }
     public DateTimeOffset AccessTokenExpiresAt { get; set; }
+    public string? SkinPath { get; set; }
+    public string SkinModel { get; set; } = "default";
 }
 
 public sealed class AccountsStore
